@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/app_config.dart';
@@ -175,20 +177,19 @@ class StudentSyncNotifier extends AsyncNotifier<StudentSyncState> {
           .map((s) => s.userId)
           .toSet();
 
+      // ignore: avoid_print
+      print('[SYNC] fetched=${data.length} siswaRows=${rows.length} '
+          'serverIds=${serverUserIds.length} admins=${protectedUserIds.length}');
+
       await db.syncStudentsSnapshot(
         rows: rows,
         serverUserIds: serverUserIds,
         protectedUserIds: protectedUserIds,
       );
 
-      // Hikvision additions/replacements are handled out-of-band by the
-      // DeviceJob worker (BE enqueues hik.card.sync jobs on every card mutation).
-      // Stale entries on the device are pruned periodically via cleanupStaleFromHikvision.
-      if (config.isHikvisionConfigured) {
-        await ref.read(studentServiceProvider).cleanupStaleFromHikvision(config: config);
-      }
-
       final count = await db.getStudentCount();
+      // ignore: avoid_print
+      print('[SYNC] DB count after snapshot = $count');
       final newState = StudentSyncState(
         count: count,
         lastSyncedAt: DateTime.now(),
@@ -196,7 +197,25 @@ class StudentSyncNotifier extends AsyncNotifier<StudentSyncState> {
       );
       state = AsyncData(newState);
       AppPubSub.publish(AppPubSubTopics.studentSynced, value: newState);
-    } catch (e) {
+
+      // Hik cleanup is best-effort and MUST NOT gate UI success. If the device
+      // is offline its ISAPI calls take ~15s each and would throw, masking the
+      // successful BE sync. Fire-and-forget; failures only log.
+      if (config.isHikvisionConfigured) {
+        unawaited(
+          ref
+              .read(studentServiceProvider)
+              .cleanupStaleFromHikvision(config: config)
+              .catchError((Object e) {
+            // ignore: avoid_print
+            print('[SYNC] hik cleanup skipped: $e');
+            return const HikvisionCleanupResult();
+          }),
+        );
+      }
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('[SYNC] FAILED: $e\n$st');
       final current = state.asData?.value ?? const StudentSyncState();
       state = AsyncData(current.copyWith(
         syncing: false,

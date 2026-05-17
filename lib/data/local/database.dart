@@ -122,7 +122,7 @@ class AppDatabase extends _$AppDatabase
   static final AppDatabase instance = AppDatabase._();
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -151,6 +151,12 @@ class AppDatabase extends _$AppDatabase
             await m.deleteTable('students');
             await m.createTable(students);
             await m.createTable(cardOutbox);
+          }
+          if (from < 8) {
+            // Legacy tap_records tables were created before `rfid_number`
+            // existed as a column. Drop + recreate at current schema.
+            await m.deleteTable('tap_records');
+            await m.createTable(tapRecords);
           }
         },
       );

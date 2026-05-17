@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../providers/health_providers.dart';
 import '../../providers/providers.dart';
 import '../../services/app_pubsub.dart';
 import '../../services/izin_payload.dart';
@@ -47,6 +50,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _refreshAll() async {
+    // Re-probe both health checks so the dashboard reflects settings the user
+    // may have just changed. These run in parallel with the data sync.
+    unawaited(ref.read(serverHealthProvider.notifier).refresh());
+    unawaited(ref.read(hikvisionHealthProvider.notifier).refresh());
+
     final config = ref.read(configProvider).asData?.value;
     if (config != null && config.isServerConfigured) {
       await ref.read(globalSyncProvider.notifier).syncAll();
@@ -74,7 +82,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final configAsync = ref.watch(configProvider);
     final syncState = ref.watch(globalSyncProvider);
     final studentState = ref.watch(studentSyncProvider);
     final pendingAsync = ref.watch(pendingSyncCountProvider);
@@ -143,40 +150,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
             child: Row(
               children: [
-                _buildStatusCard(
+                _buildHealthCard(
                   context,
                   icon: Icons.router,
                   label: 'Hikvision Reader',
-                  value:
-                      configAsync.whenOrNull(
-                        data: (c) =>
-                            c.isHikvisionConfigured ? 'Ready' : 'Not set',
-                      ) ??
-                      '...',
-                  color:
-                      configAsync.whenOrNull(
-                        data: (c) =>
-                            c.isHikvisionConfigured ? Colors.green : Colors.red,
-                      ) ??
-                      Colors.grey,
+                  health: ref.watch(hikvisionHealthProvider),
+                  onTap: () =>
+                      ref.read(hikvisionHealthProvider.notifier).refresh(),
                 ),
                 const SizedBox(width: 12),
-                _buildStatusCard(
+                _buildHealthCard(
                   context,
                   icon: Icons.cloud,
                   label: 'Server',
-                  value:
-                      configAsync.whenOrNull(
-                        data: (c) =>
-                            c.isServerConfigured ? 'Connected' : 'Not set',
-                      ) ??
-                      '...',
-                  color:
-                      configAsync.whenOrNull(
-                        data: (c) =>
-                            c.isServerConfigured ? Colors.green : Colors.red,
-                      ) ??
-                      Colors.grey,
+                  health: ref.watch(serverHealthProvider),
+                  onTap: () =>
+                      ref.read(serverHealthProvider.notifier).refresh(),
                 ),
                 const SizedBox(width: 12),
                 _buildStatusCard(
@@ -350,6 +339,38 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildHealthCard(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required AsyncValue<HealthStatus> health,
+    VoidCallback? onTap,
+  }) {
+    final status = health.asData?.value ?? HealthStatus.unknown;
+    return _buildStatusCard(
+      context,
+      icon: icon,
+      label: label,
+      value: status.label,
+      color: _healthColor(status),
+      onTap: onTap,
+    );
+  }
+
+  Color _healthColor(HealthStatus s) {
+    switch (s) {
+      case HealthStatus.ok:
+        return Colors.green;
+      case HealthStatus.unreachable:
+        return Colors.red;
+      case HealthStatus.notConfigured:
+        return Colors.orange;
+      case HealthStatus.probing:
+      case HealthStatus.unknown:
+        return Colors.grey;
+    }
   }
 
   Widget _buildStatusCard(
