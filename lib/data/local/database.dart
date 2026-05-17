@@ -3,11 +3,15 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 
+import 'tables/card_outbox.dart';
 import 'tables/students.dart';
 import 'tables/tap_records.dart';
 
 part 'database.g.dart';
+
+const _uuid = Uuid();
 
 abstract class StudentStorePort {
   Future<List<Student>> getAllStudents();
@@ -25,6 +29,12 @@ abstract class StudentStorePort {
   Future<void> markHikRegistered(String userId);
   Future<void> assignCardToStudent(String userId, String rfidNumber);
   Future<void> removeCardFromStudent(String userId);
+  Future<String> enqueueCardWrite({
+    required String userId,
+    required String? oldRfid,
+    required String? newRfid,
+  });
+  Future<void> setStudentCardSyncStatus(String userId, String status);
 }
 
 abstract class AttendanceStorePort {
@@ -48,6 +58,36 @@ abstract class StudentDeletionPort {
   Future<void> forgetStudent(String userId);
 }
 
+abstract class CardOutboxPort {
+  /// Enqueue a card mutation. The worker drains rows asynchronously.
+  /// Returns the outbox row id.
+  Future<String> enqueueCardWrite({
+    required String userId,
+    required String? oldRfid,
+    required String? newRfid,
+  });
+
+  /// Rows ready for the next worker pass (status='queued' AND nextAttemptAt<=now).
+  Future<List<CardOutboxData>> dueCardOutboxRows({required int nowSec, int limit = 20});
+
+  /// Has the worker got a queued row for this user? Snapshot sync uses this
+  /// to avoid stomping an in-flight optimistic edit with BE truth.
+  Future<bool> hasQueuedCardWrite(String userId);
+
+  Future<void> markCardOutboxDone(String id);
+
+  /// Terminal failure — local Students row should already be reverted by caller.
+  Future<void> markCardOutboxDead(String id, String error);
+
+  /// Transient failure — backoff and try again.
+  Future<void> bumpCardOutboxRetry({
+    required String id,
+    required int attempts,
+    required int nextAttemptAt,
+    required String error,
+  });
+}
+
 abstract class SyncStorePort {
   Future<List<TapRecord>> getUnpublishedRecords();
   Future<Student?> getStudentByUserId(String userId);
@@ -68,20 +108,21 @@ class StudentSnapshotSyncResult {
   });
 }
 
-@DriftDatabase(tables: [Students, TapRecords])
+@DriftDatabase(tables: [Students, TapRecords, CardOutbox])
 class AppDatabase extends _$AppDatabase
     implements
         StudentStorePort,
         AttendanceStorePort,
         SyncStorePort,
         AbsensiInvalidatorPort,
-        StudentDeletionPort {
+        StudentDeletionPort,
+        CardOutboxPort {
   AppDatabase._() : super(_openConnection());
 
   static final AppDatabase instance = AppDatabase._();
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -103,6 +144,13 @@ class AppDatabase extends _$AppDatabase
             // Simplest path: wipe and let the next snapshot resync repopulate.
             await m.deleteTable('students');
             await m.createTable(students);
+          }
+          if (from < 7) {
+            // Card outbox + sync status. Wipe students so the new column gets
+            // its default; next snapshot resync repopulates.
+            await m.deleteTable('students');
+            await m.createTable(students);
+            await m.createTable(cardOutbox);
           }
         },
       );
@@ -172,25 +220,37 @@ class AppDatabase extends _$AppDatabase
       for (final s in beforeRows) s.userId: s,
     };
 
-    // Detect card changes before upsert to compute revokedCardNos and reset hikRegistered
+    // Pull the set of users whose card edits are currently mid-flight in the
+    // local outbox. Snapshot must NOT stomp their rfid_number — the worker
+    // will reconcile after BE acks (success → BE returns the new value next
+    // pull, failure → worker reverts).
+    final inFlightUserIds = await _queuedCardUserIds();
+
+    // Detect card changes before upsert. Skip flagging hikRegistered for
+    // in-flight users so the snapshot doesn't double-trigger work.
     final cardChangedUserIds = <String>[];
     final revokedCardNos = <String>[];
     for (final row in rows) {
       final userId = row.userId.value;
+      if (inFlightUserIds.contains(userId)) continue;
       final newCard = row.rfidNumber.present ? row.rfidNumber.value : null;
       final old = beforeByUserId[userId];
       if (old != null && old.rfidNumber != newCard) {
         cardChangedUserIds.add(userId);
-        // Old card removed or replaced — revoke from Hikvision
         if (old.rfidNumber != null && old.rfidNumber!.isNotEmpty) {
           revokedCardNos.add(old.rfidNumber!);
         }
       }
     }
 
+    // Filter snapshot rows: in-flight users keep their local optimistic state.
+    final applicableRows = inFlightUserIds.isEmpty
+        ? rows
+        : rows.where((r) => !inFlightUserIds.contains(r.userId.value)).toList();
+
     await transaction(() async {
-      if (rows.isNotEmpty) {
-        await upsertStudents(rows);
+      if (applicableRows.isNotEmpty) {
+        await upsertStudents(applicableRows);
       }
 
       // Reset hikRegistered for students with changed card → triggers re-push
@@ -336,7 +396,123 @@ class AppDatabase extends _$AppDatabase
             ..where((r) => r.id.like('${userId}_%') & r.publishedAt.isNull()))
           .go();
       await (delete(students)..where((s) => s.userId.equals(userId))).go();
+      await (delete(cardOutbox)..where((c) => c.userId.equals(userId))).go();
     });
+  }
+
+  // ── Card Outbox ────────────────────────────────────────────────────────
+
+  @override
+  Future<String> enqueueCardWrite({
+    required String userId,
+    required String? oldRfid,
+    required String? newRfid,
+  }) async {
+    final id = _uuid.v4();
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await into(cardOutbox).insert(
+      CardOutboxCompanion(
+        id: Value(id),
+        userId: Value(userId),
+        oldRfid: Value(oldRfid),
+        newRfid: Value(newRfid),
+        status: const Value('queued'),
+        attempts: const Value(0),
+        nextAttemptAt: Value(now),
+        createdAt: Value(now),
+      ),
+    );
+    return id;
+  }
+
+  @override
+  Future<List<CardOutboxData>> dueCardOutboxRows({
+    required int nowSec,
+    int limit = 20,
+  }) {
+    return (select(cardOutbox)
+          ..where((c) =>
+              c.status.equals('queued') &
+              c.nextAttemptAt.isSmallerOrEqualValue(nowSec))
+          ..orderBy([(c) => OrderingTerm.asc(c.createdAt)])
+          ..limit(limit))
+        .get();
+  }
+
+  @override
+  Future<bool> hasQueuedCardWrite(String userId) async {
+    final query = selectOnly(cardOutbox)
+      ..addColumns([cardOutbox.id])
+      ..where(cardOutbox.userId.equals(userId) & cardOutbox.status.equals('queued'))
+      ..limit(1);
+    final row = await query.getSingleOrNull();
+    return row != null;
+  }
+
+  @override
+  Future<void> markCardOutboxDone(String id) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await (update(cardOutbox)..where((c) => c.id.equals(id))).write(
+      CardOutboxCompanion(
+        status: const Value('done'),
+        completedAt: Value(now),
+        lastError: const Value(null),
+      ),
+    );
+  }
+
+  @override
+  Future<void> markCardOutboxDead(String id, String error) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await (update(cardOutbox)..where((c) => c.id.equals(id))).write(
+      CardOutboxCompanion(
+        status: const Value('dead'),
+        completedAt: Value(now),
+        lastError: Value(error),
+      ),
+    );
+  }
+
+  @override
+  Future<void> bumpCardOutboxRetry({
+    required String id,
+    required int attempts,
+    required int nextAttemptAt,
+    required String error,
+  }) async {
+    await (update(cardOutbox)..where((c) => c.id.equals(id))).write(
+      CardOutboxCompanion(
+        attempts: Value(attempts),
+        nextAttemptAt: Value(nextAttemptAt),
+        lastError: Value(error),
+      ),
+    );
+  }
+
+  @override
+  Future<void> setStudentCardSyncStatus(String userId, String status) {
+    return (update(students)..where((s) => s.userId.equals(userId))).write(
+      StudentsCompanion(cardSyncStatus: Value(status)),
+    );
+  }
+
+  /// Used by the worker when BE rejects (4xx) or retries exhaust — restores
+  /// the local Students row to the snapshot taken at enqueue time.
+  Future<void> revertStudentCard(String userId, String? oldRfid) async {
+    await (update(students)..where((s) => s.userId.equals(userId))).write(
+      StudentsCompanion(
+        rfidNumber: Value(oldRfid),
+        cardSyncStatus: const Value('failed'),
+      ),
+    );
+  }
+
+  Future<Set<String>> _queuedCardUserIds() async {
+    final query = selectOnly(cardOutbox, distinct: true)
+      ..addColumns([cardOutbox.userId])
+      ..where(cardOutbox.status.equals('queued'));
+    final rows = await query.get();
+    return rows.map((r) => r.read(cardOutbox.userId)!).toSet();
   }
 
   @override

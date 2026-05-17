@@ -92,6 +92,18 @@ class $StudentsTable extends Students with TableInfo<$StudentsTable, Student> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _cardSyncStatusMeta = const VerificationMeta(
+    'cardSyncStatus',
+  );
+  @override
+  late final GeneratedColumn<String> cardSyncStatus = GeneratedColumn<String>(
+    'card_sync_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('synced'),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     userId,
@@ -102,6 +114,7 @@ class $StudentsTable extends Students with TableInfo<$StudentsTable, Student> {
     noTelpWali,
     syncedAt,
     hikRegistered,
+    cardSyncStatus,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -173,6 +186,15 @@ class $StudentsTable extends Students with TableInfo<$StudentsTable, Student> {
         ),
       );
     }
+    if (data.containsKey('card_sync_status')) {
+      context.handle(
+        _cardSyncStatusMeta,
+        cardSyncStatus.isAcceptableOrUnknown(
+          data['card_sync_status']!,
+          _cardSyncStatusMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -214,6 +236,10 @@ class $StudentsTable extends Students with TableInfo<$StudentsTable, Student> {
         DriftSqlType.bool,
         data['${effectivePrefix}hik_registered'],
       )!,
+      cardSyncStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}card_sync_status'],
+      )!,
     );
   }
 
@@ -232,6 +258,7 @@ class Student extends DataClass implements Insertable<Student> {
   final String? noTelpWali;
   final int? syncedAt;
   final bool hikRegistered;
+  final String cardSyncStatus;
   const Student({
     required this.userId,
     this.rfidNumber,
@@ -241,6 +268,7 @@ class Student extends DataClass implements Insertable<Student> {
     this.noTelpWali,
     this.syncedAt,
     required this.hikRegistered,
+    required this.cardSyncStatus,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -263,6 +291,7 @@ class Student extends DataClass implements Insertable<Student> {
       map['synced_at'] = Variable<int>(syncedAt);
     }
     map['hik_registered'] = Variable<bool>(hikRegistered);
+    map['card_sync_status'] = Variable<String>(cardSyncStatus);
     return map;
   }
 
@@ -284,6 +313,7 @@ class Student extends DataClass implements Insertable<Student> {
           ? const Value.absent()
           : Value(syncedAt),
       hikRegistered: Value(hikRegistered),
+      cardSyncStatus: Value(cardSyncStatus),
     );
   }
 
@@ -301,6 +331,7 @@ class Student extends DataClass implements Insertable<Student> {
       noTelpWali: serializer.fromJson<String?>(json['noTelpWali']),
       syncedAt: serializer.fromJson<int?>(json['syncedAt']),
       hikRegistered: serializer.fromJson<bool>(json['hikRegistered']),
+      cardSyncStatus: serializer.fromJson<String>(json['cardSyncStatus']),
     );
   }
   @override
@@ -315,6 +346,7 @@ class Student extends DataClass implements Insertable<Student> {
       'noTelpWali': serializer.toJson<String?>(noTelpWali),
       'syncedAt': serializer.toJson<int?>(syncedAt),
       'hikRegistered': serializer.toJson<bool>(hikRegistered),
+      'cardSyncStatus': serializer.toJson<String>(cardSyncStatus),
     };
   }
 
@@ -327,6 +359,7 @@ class Student extends DataClass implements Insertable<Student> {
     Value<String?> noTelpWali = const Value.absent(),
     Value<int?> syncedAt = const Value.absent(),
     bool? hikRegistered,
+    String? cardSyncStatus,
   }) => Student(
     userId: userId ?? this.userId,
     rfidNumber: rfidNumber.present ? rfidNumber.value : this.rfidNumber,
@@ -336,6 +369,7 @@ class Student extends DataClass implements Insertable<Student> {
     noTelpWali: noTelpWali.present ? noTelpWali.value : this.noTelpWali,
     syncedAt: syncedAt.present ? syncedAt.value : this.syncedAt,
     hikRegistered: hikRegistered ?? this.hikRegistered,
+    cardSyncStatus: cardSyncStatus ?? this.cardSyncStatus,
   );
   Student copyWithCompanion(StudentsCompanion data) {
     return Student(
@@ -353,6 +387,9 @@ class Student extends DataClass implements Insertable<Student> {
       hikRegistered: data.hikRegistered.present
           ? data.hikRegistered.value
           : this.hikRegistered,
+      cardSyncStatus: data.cardSyncStatus.present
+          ? data.cardSyncStatus.value
+          : this.cardSyncStatus,
     );
   }
 
@@ -366,7 +403,8 @@ class Student extends DataClass implements Insertable<Student> {
           ..write('kelas: $kelas, ')
           ..write('noTelpWali: $noTelpWali, ')
           ..write('syncedAt: $syncedAt, ')
-          ..write('hikRegistered: $hikRegistered')
+          ..write('hikRegistered: $hikRegistered, ')
+          ..write('cardSyncStatus: $cardSyncStatus')
           ..write(')'))
         .toString();
   }
@@ -381,6 +419,7 @@ class Student extends DataClass implements Insertable<Student> {
     noTelpWali,
     syncedAt,
     hikRegistered,
+    cardSyncStatus,
   );
   @override
   bool operator ==(Object other) =>
@@ -393,7 +432,8 @@ class Student extends DataClass implements Insertable<Student> {
           other.kelas == this.kelas &&
           other.noTelpWali == this.noTelpWali &&
           other.syncedAt == this.syncedAt &&
-          other.hikRegistered == this.hikRegistered);
+          other.hikRegistered == this.hikRegistered &&
+          other.cardSyncStatus == this.cardSyncStatus);
 }
 
 class StudentsCompanion extends UpdateCompanion<Student> {
@@ -405,6 +445,7 @@ class StudentsCompanion extends UpdateCompanion<Student> {
   final Value<String?> noTelpWali;
   final Value<int?> syncedAt;
   final Value<bool> hikRegistered;
+  final Value<String> cardSyncStatus;
   final Value<int> rowid;
   const StudentsCompanion({
     this.userId = const Value.absent(),
@@ -415,6 +456,7 @@ class StudentsCompanion extends UpdateCompanion<Student> {
     this.noTelpWali = const Value.absent(),
     this.syncedAt = const Value.absent(),
     this.hikRegistered = const Value.absent(),
+    this.cardSyncStatus = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   StudentsCompanion.insert({
@@ -426,6 +468,7 @@ class StudentsCompanion extends UpdateCompanion<Student> {
     this.noTelpWali = const Value.absent(),
     this.syncedAt = const Value.absent(),
     this.hikRegistered = const Value.absent(),
+    this.cardSyncStatus = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : userId = Value(userId),
        nama = Value(nama);
@@ -438,6 +481,7 @@ class StudentsCompanion extends UpdateCompanion<Student> {
     Expression<String>? noTelpWali,
     Expression<int>? syncedAt,
     Expression<bool>? hikRegistered,
+    Expression<String>? cardSyncStatus,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -449,6 +493,7 @@ class StudentsCompanion extends UpdateCompanion<Student> {
       if (noTelpWali != null) 'no_telp_wali': noTelpWali,
       if (syncedAt != null) 'synced_at': syncedAt,
       if (hikRegistered != null) 'hik_registered': hikRegistered,
+      if (cardSyncStatus != null) 'card_sync_status': cardSyncStatus,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -462,6 +507,7 @@ class StudentsCompanion extends UpdateCompanion<Student> {
     Value<String?>? noTelpWali,
     Value<int?>? syncedAt,
     Value<bool>? hikRegistered,
+    Value<String>? cardSyncStatus,
     Value<int>? rowid,
   }) {
     return StudentsCompanion(
@@ -473,6 +519,7 @@ class StudentsCompanion extends UpdateCompanion<Student> {
       noTelpWali: noTelpWali ?? this.noTelpWali,
       syncedAt: syncedAt ?? this.syncedAt,
       hikRegistered: hikRegistered ?? this.hikRegistered,
+      cardSyncStatus: cardSyncStatus ?? this.cardSyncStatus,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -504,6 +551,9 @@ class StudentsCompanion extends UpdateCompanion<Student> {
     if (hikRegistered.present) {
       map['hik_registered'] = Variable<bool>(hikRegistered.value);
     }
+    if (cardSyncStatus.present) {
+      map['card_sync_status'] = Variable<String>(cardSyncStatus.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -521,6 +571,7 @@ class StudentsCompanion extends UpdateCompanion<Student> {
           ..write('noTelpWali: $noTelpWali, ')
           ..write('syncedAt: $syncedAt, ')
           ..write('hikRegistered: $hikRegistered, ')
+          ..write('cardSyncStatus: $cardSyncStatus, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1058,16 +1109,635 @@ class TapRecordsCompanion extends UpdateCompanion<TapRecord> {
   }
 }
 
+class $CardOutboxTable extends CardOutbox
+    with TableInfo<$CardOutboxTable, CardOutboxData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CardOutboxTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _oldRfidMeta = const VerificationMeta(
+    'oldRfid',
+  );
+  @override
+  late final GeneratedColumn<String> oldRfid = GeneratedColumn<String>(
+    'old_rfid',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _newRfidMeta = const VerificationMeta(
+    'newRfid',
+  );
+  @override
+  late final GeneratedColumn<String> newRfid = GeneratedColumn<String>(
+    'new_rfid',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('queued'),
+  );
+  static const VerificationMeta _attemptsMeta = const VerificationMeta(
+    'attempts',
+  );
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _nextAttemptAtMeta = const VerificationMeta(
+    'nextAttemptAt',
+  );
+  @override
+  late final GeneratedColumn<int> nextAttemptAt = GeneratedColumn<int>(
+    'next_attempt_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _completedAtMeta = const VerificationMeta(
+    'completedAt',
+  );
+  @override
+  late final GeneratedColumn<int> completedAt = GeneratedColumn<int>(
+    'completed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    userId,
+    oldRfid,
+    newRfid,
+    status,
+    attempts,
+    nextAttemptAt,
+    lastError,
+    createdAt,
+    completedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'card_outbox';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CardOutboxData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('old_rfid')) {
+      context.handle(
+        _oldRfidMeta,
+        oldRfid.isAcceptableOrUnknown(data['old_rfid']!, _oldRfidMeta),
+      );
+    }
+    if (data.containsKey('new_rfid')) {
+      context.handle(
+        _newRfidMeta,
+        newRfid.isAcceptableOrUnknown(data['new_rfid']!, _newRfidMeta),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(
+        _attemptsMeta,
+        attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta),
+      );
+    }
+    if (data.containsKey('next_attempt_at')) {
+      context.handle(
+        _nextAttemptAtMeta,
+        nextAttemptAt.isAcceptableOrUnknown(
+          data['next_attempt_at']!,
+          _nextAttemptAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_nextAttemptAtMeta);
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+        _completedAtMeta,
+        completedAt.isAcceptableOrUnknown(
+          data['completed_at']!,
+          _completedAtMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CardOutboxData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CardOutboxData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_id'],
+      )!,
+      oldRfid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}old_rfid'],
+      ),
+      newRfid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}new_rfid'],
+      ),
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      nextAttemptAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}next_attempt_at'],
+      )!,
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+      completedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_at'],
+      ),
+    );
+  }
+
+  @override
+  $CardOutboxTable createAlias(String alias) {
+    return $CardOutboxTable(attachedDatabase, alias);
+  }
+}
+
+class CardOutboxData extends DataClass implements Insertable<CardOutboxData> {
+  final String id;
+  final String userId;
+  final String? oldRfid;
+  final String? newRfid;
+  final String status;
+  final int attempts;
+  final int nextAttemptAt;
+  final String? lastError;
+  final int createdAt;
+  final int? completedAt;
+  const CardOutboxData({
+    required this.id,
+    required this.userId,
+    this.oldRfid,
+    this.newRfid,
+    required this.status,
+    required this.attempts,
+    required this.nextAttemptAt,
+    this.lastError,
+    required this.createdAt,
+    this.completedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    if (!nullToAbsent || oldRfid != null) {
+      map['old_rfid'] = Variable<String>(oldRfid);
+    }
+    if (!nullToAbsent || newRfid != null) {
+      map['new_rfid'] = Variable<String>(newRfid);
+    }
+    map['status'] = Variable<String>(status);
+    map['attempts'] = Variable<int>(attempts);
+    map['next_attempt_at'] = Variable<int>(nextAttemptAt);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    map['created_at'] = Variable<int>(createdAt);
+    if (!nullToAbsent || completedAt != null) {
+      map['completed_at'] = Variable<int>(completedAt);
+    }
+    return map;
+  }
+
+  CardOutboxCompanion toCompanion(bool nullToAbsent) {
+    return CardOutboxCompanion(
+      id: Value(id),
+      userId: Value(userId),
+      oldRfid: oldRfid == null && nullToAbsent
+          ? const Value.absent()
+          : Value(oldRfid),
+      newRfid: newRfid == null && nullToAbsent
+          ? const Value.absent()
+          : Value(newRfid),
+      status: Value(status),
+      attempts: Value(attempts),
+      nextAttemptAt: Value(nextAttemptAt),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      createdAt: Value(createdAt),
+      completedAt: completedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAt),
+    );
+  }
+
+  factory CardOutboxData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CardOutboxData(
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      oldRfid: serializer.fromJson<String?>(json['oldRfid']),
+      newRfid: serializer.fromJson<String?>(json['newRfid']),
+      status: serializer.fromJson<String>(json['status']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      nextAttemptAt: serializer.fromJson<int>(json['nextAttemptAt']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      completedAt: serializer.fromJson<int?>(json['completedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'oldRfid': serializer.toJson<String?>(oldRfid),
+      'newRfid': serializer.toJson<String?>(newRfid),
+      'status': serializer.toJson<String>(status),
+      'attempts': serializer.toJson<int>(attempts),
+      'nextAttemptAt': serializer.toJson<int>(nextAttemptAt),
+      'lastError': serializer.toJson<String?>(lastError),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'completedAt': serializer.toJson<int?>(completedAt),
+    };
+  }
+
+  CardOutboxData copyWith({
+    String? id,
+    String? userId,
+    Value<String?> oldRfid = const Value.absent(),
+    Value<String?> newRfid = const Value.absent(),
+    String? status,
+    int? attempts,
+    int? nextAttemptAt,
+    Value<String?> lastError = const Value.absent(),
+    int? createdAt,
+    Value<int?> completedAt = const Value.absent(),
+  }) => CardOutboxData(
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    oldRfid: oldRfid.present ? oldRfid.value : this.oldRfid,
+    newRfid: newRfid.present ? newRfid.value : this.newRfid,
+    status: status ?? this.status,
+    attempts: attempts ?? this.attempts,
+    nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+    lastError: lastError.present ? lastError.value : this.lastError,
+    createdAt: createdAt ?? this.createdAt,
+    completedAt: completedAt.present ? completedAt.value : this.completedAt,
+  );
+  CardOutboxData copyWithCompanion(CardOutboxCompanion data) {
+    return CardOutboxData(
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      oldRfid: data.oldRfid.present ? data.oldRfid.value : this.oldRfid,
+      newRfid: data.newRfid.present ? data.newRfid.value : this.newRfid,
+      status: data.status.present ? data.status.value : this.status,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      nextAttemptAt: data.nextAttemptAt.present
+          ? data.nextAttemptAt.value
+          : this.nextAttemptAt,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      completedAt: data.completedAt.present
+          ? data.completedAt.value
+          : this.completedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CardOutboxData(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('oldRfid: $oldRfid, ')
+          ..write('newRfid: $newRfid, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('completedAt: $completedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    userId,
+    oldRfid,
+    newRfid,
+    status,
+    attempts,
+    nextAttemptAt,
+    lastError,
+    createdAt,
+    completedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CardOutboxData &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.oldRfid == this.oldRfid &&
+          other.newRfid == this.newRfid &&
+          other.status == this.status &&
+          other.attempts == this.attempts &&
+          other.nextAttemptAt == this.nextAttemptAt &&
+          other.lastError == this.lastError &&
+          other.createdAt == this.createdAt &&
+          other.completedAt == this.completedAt);
+}
+
+class CardOutboxCompanion extends UpdateCompanion<CardOutboxData> {
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String?> oldRfid;
+  final Value<String?> newRfid;
+  final Value<String> status;
+  final Value<int> attempts;
+  final Value<int> nextAttemptAt;
+  final Value<String?> lastError;
+  final Value<int> createdAt;
+  final Value<int?> completedAt;
+  final Value<int> rowid;
+  const CardOutboxCompanion({
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.oldRfid = const Value.absent(),
+    this.newRfid = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextAttemptAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CardOutboxCompanion.insert({
+    required String id,
+    required String userId,
+    this.oldRfid = const Value.absent(),
+    this.newRfid = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    required int nextAttemptAt,
+    this.lastError = const Value.absent(),
+    required int createdAt,
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       userId = Value(userId),
+       nextAttemptAt = Value(nextAttemptAt),
+       createdAt = Value(createdAt);
+  static Insertable<CardOutboxData> custom({
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? oldRfid,
+    Expression<String>? newRfid,
+    Expression<String>? status,
+    Expression<int>? attempts,
+    Expression<int>? nextAttemptAt,
+    Expression<String>? lastError,
+    Expression<int>? createdAt,
+    Expression<int>? completedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (oldRfid != null) 'old_rfid': oldRfid,
+      if (newRfid != null) 'new_rfid': newRfid,
+      if (status != null) 'status': status,
+      if (attempts != null) 'attempts': attempts,
+      if (nextAttemptAt != null) 'next_attempt_at': nextAttemptAt,
+      if (lastError != null) 'last_error': lastError,
+      if (createdAt != null) 'created_at': createdAt,
+      if (completedAt != null) 'completed_at': completedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CardOutboxCompanion copyWith({
+    Value<String>? id,
+    Value<String>? userId,
+    Value<String?>? oldRfid,
+    Value<String?>? newRfid,
+    Value<String>? status,
+    Value<int>? attempts,
+    Value<int>? nextAttemptAt,
+    Value<String?>? lastError,
+    Value<int>? createdAt,
+    Value<int?>? completedAt,
+    Value<int>? rowid,
+  }) {
+    return CardOutboxCompanion(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      oldRfid: oldRfid ?? this.oldRfid,
+      newRfid: newRfid ?? this.newRfid,
+      status: status ?? this.status,
+      attempts: attempts ?? this.attempts,
+      nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+      lastError: lastError ?? this.lastError,
+      createdAt: createdAt ?? this.createdAt,
+      completedAt: completedAt ?? this.completedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (oldRfid.present) {
+      map['old_rfid'] = Variable<String>(oldRfid.value);
+    }
+    if (newRfid.present) {
+      map['new_rfid'] = Variable<String>(newRfid.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (nextAttemptAt.present) {
+      map['next_attempt_at'] = Variable<int>(nextAttemptAt.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<int>(completedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CardOutboxCompanion(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('oldRfid: $oldRfid, ')
+          ..write('newRfid: $newRfid, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('completedAt: $completedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $StudentsTable students = $StudentsTable(this);
   late final $TapRecordsTable tapRecords = $TapRecordsTable(this);
+  late final $CardOutboxTable cardOutbox = $CardOutboxTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [students, tapRecords];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+    students,
+    tapRecords,
+    cardOutbox,
+  ];
 }
 
 typedef $$StudentsTableCreateCompanionBuilder =
@@ -1080,6 +1750,7 @@ typedef $$StudentsTableCreateCompanionBuilder =
       Value<String?> noTelpWali,
       Value<int?> syncedAt,
       Value<bool> hikRegistered,
+      Value<String> cardSyncStatus,
       Value<int> rowid,
     });
 typedef $$StudentsTableUpdateCompanionBuilder =
@@ -1092,6 +1763,7 @@ typedef $$StudentsTableUpdateCompanionBuilder =
       Value<String?> noTelpWali,
       Value<int?> syncedAt,
       Value<bool> hikRegistered,
+      Value<String> cardSyncStatus,
       Value<int> rowid,
     });
 
@@ -1141,6 +1813,11 @@ class $$StudentsTableFilterComposer
 
   ColumnFilters<bool> get hikRegistered => $composableBuilder(
     column: $table.hikRegistered,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get cardSyncStatus => $composableBuilder(
+    column: $table.cardSyncStatus,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -1193,6 +1870,11 @@ class $$StudentsTableOrderingComposer
     column: $table.hikRegistered,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get cardSyncStatus => $composableBuilder(
+    column: $table.cardSyncStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$StudentsTableAnnotationComposer
@@ -1233,6 +1915,11 @@ class $$StudentsTableAnnotationComposer
     column: $table.hikRegistered,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get cardSyncStatus => $composableBuilder(
+    column: $table.cardSyncStatus,
+    builder: (column) => column,
+  );
 }
 
 class $$StudentsTableTableManager
@@ -1271,6 +1958,7 @@ class $$StudentsTableTableManager
                 Value<String?> noTelpWali = const Value.absent(),
                 Value<int?> syncedAt = const Value.absent(),
                 Value<bool> hikRegistered = const Value.absent(),
+                Value<String> cardSyncStatus = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => StudentsCompanion(
                 userId: userId,
@@ -1281,6 +1969,7 @@ class $$StudentsTableTableManager
                 noTelpWali: noTelpWali,
                 syncedAt: syncedAt,
                 hikRegistered: hikRegistered,
+                cardSyncStatus: cardSyncStatus,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -1293,6 +1982,7 @@ class $$StudentsTableTableManager
                 Value<String?> noTelpWali = const Value.absent(),
                 Value<int?> syncedAt = const Value.absent(),
                 Value<bool> hikRegistered = const Value.absent(),
+                Value<String> cardSyncStatus = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => StudentsCompanion.insert(
                 userId: userId,
@@ -1303,6 +1993,7 @@ class $$StudentsTableTableManager
                 noTelpWali: noTelpWali,
                 syncedAt: syncedAt,
                 hikRegistered: hikRegistered,
+                cardSyncStatus: cardSyncStatus,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -1589,6 +2280,305 @@ typedef $$TapRecordsTableProcessedTableManager =
       TapRecord,
       PrefetchHooks Function()
     >;
+typedef $$CardOutboxTableCreateCompanionBuilder =
+    CardOutboxCompanion Function({
+      required String id,
+      required String userId,
+      Value<String?> oldRfid,
+      Value<String?> newRfid,
+      Value<String> status,
+      Value<int> attempts,
+      required int nextAttemptAt,
+      Value<String?> lastError,
+      required int createdAt,
+      Value<int?> completedAt,
+      Value<int> rowid,
+    });
+typedef $$CardOutboxTableUpdateCompanionBuilder =
+    CardOutboxCompanion Function({
+      Value<String> id,
+      Value<String> userId,
+      Value<String?> oldRfid,
+      Value<String?> newRfid,
+      Value<String> status,
+      Value<int> attempts,
+      Value<int> nextAttemptAt,
+      Value<String?> lastError,
+      Value<int> createdAt,
+      Value<int?> completedAt,
+      Value<int> rowid,
+    });
+
+class $$CardOutboxTableFilterComposer
+    extends Composer<_$AppDatabase, $CardOutboxTable> {
+  $$CardOutboxTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get oldRfid => $composableBuilder(
+    column: $table.oldRfid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get newRfid => $composableBuilder(
+    column: $table.newRfid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CardOutboxTableOrderingComposer
+    extends Composer<_$AppDatabase, $CardOutboxTable> {
+  $$CardOutboxTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get oldRfid => $composableBuilder(
+    column: $table.oldRfid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get newRfid => $composableBuilder(
+    column: $table.newRfid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CardOutboxTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CardOutboxTable> {
+  $$CardOutboxTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get oldRfid =>
+      $composableBuilder(column: $table.oldRfid, builder: (column) => column);
+
+  GeneratedColumn<String> get newRfid =>
+      $composableBuilder(column: $table.newRfid, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<int> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$CardOutboxTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $CardOutboxTable,
+          CardOutboxData,
+          $$CardOutboxTableFilterComposer,
+          $$CardOutboxTableOrderingComposer,
+          $$CardOutboxTableAnnotationComposer,
+          $$CardOutboxTableCreateCompanionBuilder,
+          $$CardOutboxTableUpdateCompanionBuilder,
+          (
+            CardOutboxData,
+            BaseReferences<_$AppDatabase, $CardOutboxTable, CardOutboxData>,
+          ),
+          CardOutboxData,
+          PrefetchHooks Function()
+        > {
+  $$CardOutboxTableTableManager(_$AppDatabase db, $CardOutboxTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CardOutboxTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CardOutboxTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CardOutboxTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> userId = const Value.absent(),
+                Value<String?> oldRfid = const Value.absent(),
+                Value<String?> newRfid = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<int> nextAttemptAt = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CardOutboxCompanion(
+                id: id,
+                userId: userId,
+                oldRfid: oldRfid,
+                newRfid: newRfid,
+                status: status,
+                attempts: attempts,
+                nextAttemptAt: nextAttemptAt,
+                lastError: lastError,
+                createdAt: createdAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String userId,
+                Value<String?> oldRfid = const Value.absent(),
+                Value<String?> newRfid = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                required int nextAttemptAt,
+                Value<String?> lastError = const Value.absent(),
+                required int createdAt,
+                Value<int?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CardOutboxCompanion.insert(
+                id: id,
+                userId: userId,
+                oldRfid: oldRfid,
+                newRfid: newRfid,
+                status: status,
+                attempts: attempts,
+                nextAttemptAt: nextAttemptAt,
+                lastError: lastError,
+                createdAt: createdAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CardOutboxTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $CardOutboxTable,
+      CardOutboxData,
+      $$CardOutboxTableFilterComposer,
+      $$CardOutboxTableOrderingComposer,
+      $$CardOutboxTableAnnotationComposer,
+      $$CardOutboxTableCreateCompanionBuilder,
+      $$CardOutboxTableUpdateCompanionBuilder,
+      (
+        CardOutboxData,
+        BaseReferences<_$AppDatabase, $CardOutboxTable, CardOutboxData>,
+      ),
+      CardOutboxData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -1597,4 +2587,6 @@ class $AppDatabaseManager {
       $$StudentsTableTableManager(_db, _db.students);
   $$TapRecordsTableTableManager get tapRecords =>
       $$TapRecordsTableTableManager(_db, _db.tapRecords);
+  $$CardOutboxTableTableManager get cardOutbox =>
+      $$CardOutboxTableTableManager(_db, _db.cardOutbox);
 }

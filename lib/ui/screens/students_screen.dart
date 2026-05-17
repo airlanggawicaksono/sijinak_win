@@ -154,7 +154,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     await _applyCardChange(
       student: student,
       newRfidNumber: null,
-      successMessage: 'Kartu dihapus dari ${student.nama}',
+      successMessage: 'Permintaan hapus kartu diantrekan (server akan konfirmasi)',
       failurePrefix: 'Gagal hapus kartu',
     );
   }
@@ -197,7 +197,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     await _applyCardChange(
       student: student,
       newRfidNumber: newCardNo,
-      successMessage: 'Kartu berhasil diganti ke $newCardNo',
+      successMessage: 'Penggantian kartu ke $newCardNo diantrekan',
       failurePrefix: 'Gagal ganti kartu',
     );
   }
@@ -220,7 +220,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     await _applyCardChange(
       student: student,
       newRfidNumber: rfidNumber,
-      successMessage: 'Kartu $rfidNumber berhasil didaftarkan ke ${student.nama}',
+      successMessage: 'Kartu $rfidNumber diantrekan untuk ${student.nama}',
       failurePrefix: 'Gagal assign kartu',
     );
   }
@@ -229,6 +229,10 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   /// Calls BE's unified /card endpoint, mirrors the new value into Drift
   /// optimistically, then nudges the DeviceJob worker so the Hikvision push
   /// happens immediately instead of waiting for the next poll.
+  /// Optimistic card edit. Writes local Drift + enqueues a CardOutbox row.
+  /// The background CardOutboxWorker drains the row, calling BE. On BE
+  /// rejection or exhausted retries the worker reverts Students.rfidNumber
+  /// back to [student.rfidNumber] — BE remains ground truth.
   Future<void> _applyCardChange({
     required Student student,
     required String? newRfidNumber,
@@ -239,26 +243,35 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     if (config == null) return;
 
     try {
-      final api = ApiClient.fromConfig(config);
-      await api.setStudentCard(student.userId, newRfidNumber);
+      final db = ref.read(databaseProvider);
+      await db.enqueueCardWrite(
+        userId: student.userId,
+        oldRfid: student.rfidNumber,
+        newRfid: _normalizeRfid(newRfidNumber),
+      );
       await _mirrorLocalCard(student.userId, newRfidNumber);
+      await db.setStudentCardSyncStatus(student.userId, 'pending');
       _showSnack(successMessage);
       await _loadStudents();
-      unawaited(ref.read(sijinakRuntimeProvider).tickNow());
-    } on ApiException catch (e) {
-      _showSnack(e.message);
+      unawaited(ref.read(sijinakRuntimeProvider).tickCardOutbox());
     } catch (e) {
       _showSnack('$failurePrefix: $e');
     }
   }
 
+  String? _normalizeRfid(String? value) {
+    final trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
   Future<void> _mirrorLocalCard(String userId, String? newRfidNumber) async {
     final db = ref.read(databaseProvider);
-    if (newRfidNumber == null || newRfidNumber.isEmpty) {
+    final normalized = _normalizeRfid(newRfidNumber);
+    if (normalized == null) {
       await db.removeCardFromStudent(userId);
       return;
     }
-    await db.assignCardToStudent(userId, newRfidNumber);
+    await db.assignCardToStudent(userId, normalized);
   }
 
   Future<void> _importCardsCsv() async {
@@ -682,24 +695,31 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                                   fontSize: 12),
                             ),
                             trailing: s.rfidNumber != null
-                                ? Chip(
-                                    label: Text(
-                                      s.rfidNumber!,
-                                      style: const TextStyle(fontSize: 11),
-                                    ),
-                                    avatar: Icon(
-                                      s.hikRegistered
-                                          ? Icons.contactless
-                                          : Icons.contactless_outlined,
-                                      size: 14,
-                                      color: s.hikRegistered
-                                          ? colors.primary
-                                          : colors.outline,
-                                    ),
-                                    visualDensity: VisualDensity.compact,
-                                    padding: EdgeInsets.zero,
-                                    deleteIcon: const Icon(Icons.more_horiz, size: 14),
-                                    onDeleted: () => _showCardOptions(s),
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _CardSyncDot(status: s.cardSyncStatus),
+                                      const SizedBox(width: 6),
+                                      Chip(
+                                        label: Text(
+                                          s.rfidNumber!,
+                                          style: const TextStyle(fontSize: 11),
+                                        ),
+                                        avatar: Icon(
+                                          s.hikRegistered
+                                              ? Icons.contactless
+                                              : Icons.contactless_outlined,
+                                          size: 14,
+                                          color: s.hikRegistered
+                                              ? colors.primary
+                                              : colors.outline,
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                        padding: EdgeInsets.zero,
+                                        deleteIcon: const Icon(Icons.more_horiz, size: 14),
+                                        onDeleted: () => _showCardOptions(s),
+                                      ),
+                                    ],
                                   )
                                 : IconButton(
                                     icon: Icon(Icons.add_card,
@@ -714,5 +734,43 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
         ),
       ],
     );
+  }
+}
+
+
+/// 8px colored dot reflecting [Student.cardSyncStatus]:
+///   green  = synced (BE confirmed)
+///   amber  = pending (queued in CardOutbox, worker processing)
+///   red    = failed (retries exhausted / BE rejected; local reverted)
+class _CardSyncDot extends StatelessWidget {
+  final String status;
+  const _CardSyncDot({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = _colorFor(status, Theme.of(context).colorScheme);
+    return Tooltip(
+      message: _tooltipFor(status),
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          color: scheme,
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+
+  Color _colorFor(String status, ColorScheme colors) {
+    if (status == 'pending') return Colors.amber.shade600;
+    if (status == 'failed') return colors.error;
+    return Colors.green.shade600;
+  }
+
+  String _tooltipFor(String status) {
+    if (status == 'pending') return 'Kartu sedang disinkronisasi ke server';
+    if (status == 'failed') return 'Sinkronisasi kartu gagal — coba lagi';
+    return 'Kartu sinkron dengan server';
   }
 }

@@ -73,12 +73,17 @@ class _BulkCardAssignDialogState extends ConsumerState<BulkCardAssignDialog> {
 
     if (p.done) {
       return AlertDialog(
-        title: const Text('Selesai'),
+        title: const Text('Selesai diantrekan'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Berhasil: ${p.success}',
+            const Text(
+              'Kartu yang berhasil diantrekan akan disinkron ke server di latar belakang. Pantau status di tabel siswa.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Text('Diantrekan: ${p.success}',
                 style: TextStyle(color: Colors.green[700])),
             if (p.skipped > 0)
               Text('Dilewati: ${p.skipped}',
@@ -120,7 +125,7 @@ class _BulkCardAssignDialogState extends ConsumerState<BulkCardAssignDialog> {
     }
 
     return AlertDialog(
-      title: const Text('Mengassign Kartu...'),
+      title: const Text('Mengantrekan Kartu...'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

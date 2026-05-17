@@ -98,8 +98,11 @@ class StudentService {
     }
   }
 
-  /// Bulk assign from CSV/XLSX. Each row writes through the BE unified
-  /// `setStudentCard` endpoint; the DeviceJob worker handles Hikvision.
+  /// Bulk CSV/XLSX import: per row, optimistically update Drift + enqueue a
+  /// CardOutbox row. The background worker drains the queue against BE.
+  /// HTTP is NOT fired here, so the dialog finishes fast and the BE doesn't
+  /// receive a burst of N parallel calls. Status per row is visible in the
+  /// student-table badge column.
   Stream<BulkCardAssignProgress> bulkAssignCards({
     required List<Map<String, String>> rows,
     required BackendApiPort api,
@@ -115,7 +118,7 @@ class StudentService {
 
       yield _progress(i + 1, rows.length, nisn, success, skipped, failed, false, const []);
 
-      final outcome = await _assignOneFromCsv(api, nisn, rfidNumber);
+      final outcome = await _enqueueOneFromCsv(nisn, rfidNumber);
       success += outcome.successDelta;
       skipped += outcome.skippedDelta;
       failed += outcome.failedDelta;
@@ -125,8 +128,7 @@ class StudentService {
     yield _progress(rows.length, rows.length, '', success, skipped, failed, true, errors);
   }
 
-  Future<_BulkAssignOutcome> _assignOneFromCsv(
-    BackendApiPort api,
+  Future<_BulkAssignOutcome> _enqueueOneFromCsv(
     String nisn,
     String rfidNumber,
   ) async {
@@ -153,11 +155,14 @@ class StudentService {
     }
 
     try {
-      await api.setStudentCard(student.userId, rfidNumber);
+      await db.enqueueCardWrite(
+        userId: student.userId,
+        oldRfid: student.rfidNumber,
+        newRfid: rfidNumber,
+      );
       await db.assignCardToStudent(student.userId, rfidNumber);
+      await db.setStudentCardSyncStatus(student.userId, 'pending');
       return const _BulkAssignOutcome(successDelta: 1);
-    } on ApiException catch (e) {
-      return _BulkAssignOutcome(failedDelta: 1, error: 'NISN $nisn: ${e.message}');
     } catch (e) {
       return _BulkAssignOutcome(failedDelta: 1, error: 'NISN $nisn: $e');
     }

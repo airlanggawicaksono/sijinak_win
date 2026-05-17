@@ -5,6 +5,7 @@ import '../data/local/database.dart';
 import '../data/remote/api_client.dart';
 import '../data/remote/desktop_event_bus.dart';
 import '../services/absensi/absensi_invalidation_subscriber.dart';
+import '../services/card_outbox/card_outbox_worker.dart';
 import '../services/device_job/handlers/hik_person_delete_handler.dart';
 import '../services/settings/desktop_settings_store.dart';
 import '../services/students/student_deleted_subscriber.dart';
@@ -316,6 +317,7 @@ class SijinakRuntimeController {
   DeviceJobWorker? _worker;
   DesktopSettingsStore? _settingsStore;
   DesktopEventBus? _bus;
+  CardOutboxWorker? _cardOutboxWorker;
   String? _activeFingerprint;
 
   SijinakRuntimeController(this.ref);
@@ -336,19 +338,29 @@ class SijinakRuntimeController {
     final settingsStore = DesktopSettingsStore(api: api);
     final invalidator = AbsensiInvalidationSubscriber(db: db);
     final deletedSubscriber = StudentDeletedSubscriber(db: db);
+    final cardOutboxWorker = CardOutboxWorker(db: db, api: api);
     final bus = _buildBus(config, worker, settingsStore, invalidator, deletedSubscriber);
 
     _worker = worker;
     _settingsStore = settingsStore;
     _bus = bus;
+    _cardOutboxWorker = cardOutboxWorker;
 
     await worker.start();
     await settingsStore.refreshFromServer();
+    await cardOutboxWorker.start();
     await bus.start();
   }
 
   Future<void> tickNow() async {
     await _worker?.tick();
+  }
+
+  /// Fire an immediate CardOutbox pass — called after enqueueing a fresh
+  /// optimistic edit so the user sees the badge advance without waiting
+  /// for the next periodic tick.
+  Future<void> tickCardOutbox() async {
+    await _cardOutboxWorker?.tick();
   }
 
   DeviceJobWorker _buildWorker(AppConfig config, BackendApiPort api, AppDatabase db) {
@@ -380,9 +392,11 @@ class SijinakRuntimeController {
 
   Future<void> _shutdown() async {
     await _worker?.stop();
+    await _cardOutboxWorker?.stop();
     await _bus?.close();
     _settingsStore?.dispose();
     _worker = null;
+    _cardOutboxWorker = null;
     _bus = null;
     _settingsStore = null;
     _activeFingerprint = null;

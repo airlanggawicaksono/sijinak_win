@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// Implement this for each topic family you want to consume.
@@ -63,9 +64,13 @@ class DesktopEventBus {
   // ── Connection lifecycle ────────────────────────────────────────────
 
   void _open() {
-    final wsUrl = _buildWsUrl();
+    final wsUri = _buildWsUri();
     try {
-      final channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      final channel = IOWebSocketChannel.connect(
+        wsUri,
+        headers: {'X-API-Key': apiKey},
+        pingInterval: const Duration(seconds: 20),
+      );
       _channel = channel;
       _sub = channel.stream.listen(
         _onFrame,
@@ -80,14 +85,34 @@ class DesktopEventBus {
     }
   }
 
-  String _buildWsUrl() {
-    final base = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
-    final wsBase = base.startsWith('https')
-        ? base.replaceFirst('https', 'wss')
-        : base.replaceFirst('http', 'ws');
-    return '$wsBase/api/desktop/pubsub';
+  Uri _buildWsUri() {
+    final raw = baseUrl.trim();
+    final normalized = raw.contains('://') ? raw : 'http://$raw';
+    final parsed = Uri.parse(normalized);
+
+    final scheme = switch (parsed.scheme.toLowerCase()) {
+      'https' || 'wss' => 'wss',
+      _ => 'ws',
+    };
+
+    final basePath = _trimTrailingSlash(parsed.path);
+    final wsPath = basePath.toLowerCase().endsWith('/api')
+        ? '$basePath/desktop/pubsub'
+        : '$basePath/api/desktop/pubsub';
+
+    return Uri(
+      scheme: scheme,
+      userInfo: parsed.userInfo,
+      host: parsed.host,
+      port: parsed.hasPort ? parsed.port : null,
+      path: wsPath,
+      queryParameters: parsed.queryParameters.isEmpty ? null : parsed.queryParameters,
+    );
+  }
+
+  String _trimTrailingSlash(String value) {
+    if (value.isEmpty || value == '/') return '';
+    return value.endsWith('/') ? value.substring(0, value.length - 1) : value;
   }
 
   void _scheduleReconnect({required String reason}) {
