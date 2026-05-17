@@ -244,7 +244,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
       await _mirrorLocalCard(student.userId, newRfidNumber);
       _showSnack(successMessage);
       await _loadStudents();
-      unawaited(ref.read(deviceJobWorkerControllerProvider).tickNow());
+      unawaited(ref.read(sijinakRuntimeProvider).tickNow());
     } on ApiException catch (e) {
       _showSnack(e.message);
     } catch (e) {

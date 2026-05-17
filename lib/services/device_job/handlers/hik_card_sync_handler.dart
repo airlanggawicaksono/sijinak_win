@@ -23,7 +23,7 @@ class HikCardSyncHandler implements DeviceJobHandler {
   Future<void> execute(DeviceJobPayload payload) async {
     final data = payload.data;
     final userId = data['user_id'] as String;
-    final employeeNo = (data['employee_no'] as String?) ?? userId.replaceAll('-', '');
+    final employeeNo = (data['employee_no'] as String?) ?? hikvisionEmployeeNoFor(userId);
     final name = (data['name'] as String?) ?? '';
     final oldRfid = data['old_rfid'] as String?;
     final newRfid = data['new_rfid'] as String?;

@@ -3,7 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/app_config.dart';
 import '../data/local/database.dart';
 import '../data/remote/api_client.dart';
-import '../data/remote/device_job_ws_client.dart';
+import '../data/remote/desktop_event_bus.dart';
+import '../services/absensi/absensi_invalidation_subscriber.dart';
+import '../services/device_job/handlers/hik_person_delete_handler.dart';
+import '../services/settings/desktop_settings_store.dart';
+import '../services/students/student_deleted_subscriber.dart';
 import '../services/attendance_service.dart';
 import '../services/hikvision_service.dart';
 import '../services/student_service.dart';
@@ -283,17 +287,40 @@ final globalSyncProvider =
         GlobalSyncNotifier.new);
 
 
-// ── DeviceJob worker (outbox executor) ──────────────────────────────────────
+// ── Sijinak realtime runtime ────────────────────────────────────────────────
 
-/// Long-lived controller that owns the DeviceJobWorker + its WS subscriber.
-/// Recreates them whenever the server URL or API key changes.
-class DeviceJobWorkerController {
+/// Lightweight TopicSubscriber that just calls a callback. Used to bridge
+/// the bus's "incoming event" into a DeviceJobWorker tick without coupling
+/// the worker to the bus.
+class _JobCreatedSubscriber implements TopicSubscriber {
+  final Future<void> Function() onCreated;
+  _JobCreatedSubscriber(this.onCreated);
+
+  @override
+  List<String> get topics => const ['desktop.job.created'];
+
+  @override
+  Future<void> onEvent(String topic, dynamic data) => onCreated();
+}
+
+/// Long-lived controller that owns sijinak's realtime plumbing:
+///   - the DeviceJobWorker (outbox executor)
+///   - the DesktopSettingsStore (BE-canonical settings cache)
+///   - the AbsensiInvalidationSubscriber (drops stale local locks)
+///   - the single DesktopEventBus that fans WS frames out to all three
+///
+/// Recreated whenever the server URL / API key / hik MAC fingerprint changes.
+class SijinakRuntimeController {
   final Ref ref;
+
   DeviceJobWorker? _worker;
-  DeviceJobWsClient? _ws;
+  DesktopSettingsStore? _settingsStore;
+  DesktopEventBus? _bus;
   String? _activeFingerprint;
 
-  DeviceJobWorkerController(this.ref);
+  SijinakRuntimeController(this.ref);
+
+  DesktopSettingsStore? get settingsStore => _settingsStore;
 
   Future<void> ensureStarted(AppConfig config) async {
     if (!config.isServerConfigured) return;
@@ -304,35 +331,60 @@ class DeviceJobWorkerController {
     _activeFingerprint = fingerprint;
 
     final api = ApiClient.fromConfig(config);
-    final worker = DeviceJobWorker(api: api, deviceId: _deviceIdFor(config));
-    worker.register(HikCardSyncHandler(
-      hik: IsapiClient(
-        baseUrl: config.hikvisionBaseUrl,
-        username: config.hikvisionUser,
-        password: config.hikvisionPassword,
-      ),
-      db: ref.read(databaseProvider),
-    ));
-    _worker = worker;
-    await worker.start();
+    final db = ref.read(databaseProvider);
+    final worker = _buildWorker(config, api, db);
+    final settingsStore = DesktopSettingsStore(api: api);
+    final invalidator = AbsensiInvalidationSubscriber(db: db);
+    final deletedSubscriber = StudentDeletedSubscriber(db: db);
+    final bus = _buildBus(config, worker, settingsStore, invalidator, deletedSubscriber);
 
-    _ws = DeviceJobWsClient(
-      baseUrl: config.serverUrl,
-      apiKey: config.apiKey,
-      topics: const ['desktop.job.created'],
-    )..stream.listen((_) => worker.tick());
-    await _ws!.connect();
+    _worker = worker;
+    _settingsStore = settingsStore;
+    _bus = bus;
+
+    await worker.start();
+    await settingsStore.refreshFromServer();
+    await bus.start();
   }
 
   Future<void> tickNow() async {
     await _worker?.tick();
   }
 
+  DeviceJobWorker _buildWorker(AppConfig config, BackendApiPort api, AppDatabase db) {
+    final hik = IsapiClient(
+      baseUrl: config.hikvisionBaseUrl,
+      username: config.hikvisionUser,
+      password: config.hikvisionPassword,
+    );
+    final worker = DeviceJobWorker(api: api, deviceId: _deviceIdFor(config));
+    worker.register(HikCardSyncHandler(hik: hik, db: db));
+    worker.register(HikPersonDeleteHandler(hik: hik));
+    return worker;
+  }
+
+  DesktopEventBus _buildBus(
+    AppConfig config,
+    DeviceJobWorker worker,
+    DesktopSettingsStore settingsStore,
+    AbsensiInvalidationSubscriber invalidator,
+    StudentDeletedSubscriber deletedSubscriber,
+  ) {
+    final bus = DesktopEventBus(baseUrl: config.serverUrl, apiKey: config.apiKey);
+    bus.register(_JobCreatedSubscriber(worker.tick));
+    bus.register(settingsStore);
+    bus.register(invalidator);
+    bus.register(deletedSubscriber);
+    return bus;
+  }
+
   Future<void> _shutdown() async {
     await _worker?.stop();
-    await _ws?.close();
+    await _bus?.close();
+    _settingsStore?.dispose();
     _worker = null;
-    _ws = null;
+    _bus = null;
+    _settingsStore = null;
     _activeFingerprint = null;
   }
 
@@ -342,9 +394,15 @@ class DeviceJobWorkerController {
   }
 }
 
-final deviceJobWorkerControllerProvider = Provider<DeviceJobWorkerController>((ref) {
-  final controller = DeviceJobWorkerController(ref);
+final sijinakRuntimeProvider = Provider<SijinakRuntimeController>((ref) {
+  final controller = SijinakRuntimeController(ref);
   ref.onDispose(controller._shutdown);
   return controller;
 });
+
+/// Back-compat alias for callers that previously referenced the worker
+/// controller directly (e.g. UI hooks that nudge the worker after an
+/// optimistic action). They only need `tickNow()`.
+@Deprecated('Use sijinakRuntimeProvider')
+final deviceJobWorkerControllerProvider = sijinakRuntimeProvider;
 

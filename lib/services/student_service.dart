@@ -198,7 +198,7 @@ class StudentService {
 
     final localStudents = await db.getAllStudents();
     final localEmployeeNos = localStudents
-        .map((s) => s.userId.replaceAll('-', ''))
+        .map((s) => hikvisionEmployeeNoFor(s.userId))
         .where((id) => id.isNotEmpty)
         .toSet();
     final localCardNos = localStudents

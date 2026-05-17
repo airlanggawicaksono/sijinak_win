@@ -41,6 +41,13 @@ abstract class AbsensiInvalidatorPort {
   Future<int> dropTapRecordsForUserOnDate(String userId, DateTime date);
 }
 
+abstract class StudentDeletionPort {
+  /// Removes the local Drift row for [userId] and any unpublished TapRecords
+  /// belonging to that user (kills the infinite retry loop that would
+  /// otherwise re-push attendance to a now-deleted user).
+  Future<void> forgetStudent(String userId);
+}
+
 abstract class SyncStorePort {
   Future<List<TapRecord>> getUnpublishedRecords();
   Future<Student?> getStudentByUserId(String userId);
@@ -63,7 +70,12 @@ class StudentSnapshotSyncResult {
 
 @DriftDatabase(tables: [Students, TapRecords])
 class AppDatabase extends _$AppDatabase
-    implements StudentStorePort, AttendanceStorePort, SyncStorePort {
+    implements
+        StudentStorePort,
+        AttendanceStorePort,
+        SyncStorePort,
+        AbsensiInvalidatorPort,
+        StudentDeletionPort {
   AppDatabase._() : super(_openConnection());
 
   static final AppDatabase instance = AppDatabase._();
@@ -316,6 +328,31 @@ class AppDatabase extends _$AppDatabase
       (update(tapRecords)..where((r) => r.id.equals(recordId))).write(
         TapRecordsCompanion(publishedAt: Value(publishedAt)),
       );
+
+  @override
+  Future<void> forgetStudent(String userId) async {
+    await transaction(() async {
+      await (delete(tapRecords)
+            ..where((r) => r.id.like('${userId}_%') & r.publishedAt.isNull()))
+          .go();
+      await (delete(students)..where((s) => s.userId.equals(userId))).go();
+    });
+  }
+
+  @override
+  Future<int> dropTapRecordsForUserOnDate(String userId, DateTime date) {
+    final startOfDay =
+        DateTime(date.year, date.month, date.day).millisecondsSinceEpoch ~/ 1000;
+    final endOfDay = startOfDay + 86400;
+    return (delete(tapRecords)
+          ..where(
+            (r) =>
+                r.id.like('${userId}_%') &
+                r.deviceTime.isBiggerOrEqualValue(startOfDay) &
+                r.deviceTime.isSmallerThanValue(endOfDay),
+          ))
+        .go();
+  }
 
   Future<List<TapRecord>> getRecentRecords({int limit = 50}) =>
       (select(tapRecords)

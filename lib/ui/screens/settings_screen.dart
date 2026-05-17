@@ -558,6 +558,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _ServerCutoffBadge(),
+                  const SizedBox(height: 24),
                   // ── Hikvision ─────────────────────────────────
                   Text('Hikvision Reader',
                       style: Theme.of(context).textTheme.titleMedium),
@@ -893,6 +895,69 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+
+/// Read-only badge showing the BE-canonical late cutoff currently cached
+/// in [DesktopSettingsStore]. Edits remain admin-only via FE.
+class _ServerCutoffBadge extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final store = ref.watch(sijinakRuntimeProvider).settingsStore;
+    if (store == null) return _buildBadge(context, null);
+    return ListenableBuilder(
+      listenable: store,
+      builder: (_, _) => _buildBadge(context, store.current),
+    );
+  }
+
+  Widget _buildBadge(BuildContext context, dynamic settings) {
+    final colors = Theme.of(context).colorScheme;
+    final cutoffText = settings == null
+        ? 'Belum tersinkron dari server'
+        : (settings.lateCutoffTime as String).substring(0, 5);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.schedule, color: colors.primary, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Cutoff Terlambat',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  cutoffText,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            'dikelola server',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+          ),
+        ],
       ),
     );
   }

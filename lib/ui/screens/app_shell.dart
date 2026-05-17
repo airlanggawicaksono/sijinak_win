@@ -16,6 +16,12 @@ import 'dashboard.dart';
 import 'students_screen.dart';
 import 'absensi_screen.dart';
 
+class _AttendanceLabel {
+  final String label;
+  final Color color;
+  const _AttendanceLabel({required this.label, required this.color});
+}
+
 class _IzinEntry {
   final HikEvent event;
   final Student student;
@@ -65,7 +71,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final config = ref.read(configProvider).asData?.value;
     if (config == null) return;
 
-    unawaited(ref.read(deviceJobWorkerControllerProvider).ensureStarted(config));
+    unawaited(ref.read(sijinakRuntimeProvider).ensureStarted(config));
 
     final fingerprint =
         '${config.hikvisionIp}|${config.hikvisionUser}|${config.hikvisionPassword}|${config.hikvisionMac}';
@@ -159,23 +165,41 @@ class _AppShellState extends ConsumerState<AppShell> {
       unawaited(_syncInBackground());
 
       if (mounted) {
-        final label = eventType == 'absen_masuk' ? 'MASUK' : 'KELUAR';
-        final color = eventType == 'absen_masuk' ? Colors.green : Colors.blue;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${student.nama} — $label',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            backgroundColor: color,
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _showAttendanceSnack(student, eventType, event.dateTime);
       }
     } finally {
       _inProgress.remove(key);
     }
+  }
+
+  /// Snackbar shown after a successful `absen_masuk` or `absen_keluar` tap.
+  /// For absen_masuk we additionally classify locally against the BE-pushed
+  /// `late_cutoff_time` so the user sees TERLAMBAT immediately, before the
+  /// BE replies.
+  void _showAttendanceSnack(Student student, String eventType, DateTime deviceTime) {
+    final classification = _classifyAttendance(eventType, deviceTime);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${student.nama} — ${classification.label}',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: classification.color,
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  _AttendanceLabel _classifyAttendance(String eventType, DateTime deviceTime) {
+    if (eventType == 'absen_keluar') {
+      return const _AttendanceLabel(label: 'KELUAR', color: Colors.blue);
+    }
+    final settings = ref.read(sijinakRuntimeProvider).settingsStore?.current;
+    if (settings != null && settings.isLateAt(deviceTime)) {
+      return const _AttendanceLabel(label: 'MASUK — TERLAMBAT', color: Colors.orange);
+    }
+    return const _AttendanceLabel(label: 'MASUK', color: Colors.green);
   }
 
   // ── Already signed off alert ──────────────────────────────────────────────

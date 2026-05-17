@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 import '../data/local/database.dart';
@@ -53,25 +55,45 @@ class SyncService {
     for (final res in results) {
       final recordId = res['record_id'] as String;
       if (res['status'] == 'ok') {
-        final publishedAtStr = res['published_at'] as String?;
-        int publishedAt;
-        try {
-          publishedAt = publishedAtStr != null 
-            ? DateTime.parse(publishedAtStr).millisecondsSinceEpoch ~/ 1000
-            : DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        } catch (_) {
-          publishedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        }
-        
-        await db.markPublished(recordId, publishedAt);
+        await db.markPublished(recordId, _parsePublishedAtSeconds(res));
         successCount++;
-      } else {
-        debugPrint('[SyncService] Failed to sync record $recordId: ${res["detail"]}');
+        continue;
       }
+      _handleAckFailure(recordId, res);
     }
 
     return successCount;
   }
+
+  int _parsePublishedAtSeconds(Map<String, dynamic> res) {
+    final raw = res['published_at'] as String?;
+    if (raw == null) return _nowSeconds();
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return _nowSeconds();
+    return parsed.millisecondsSinceEpoch ~/ 1000;
+  }
+
+  /// Treats unrecoverable failures (e.g. user no longer exists on BE because
+  /// admin deleted the student between tap and push) as terminal so we don't
+  /// retry the record forever. Marking as "published-with-error" timestamps
+  /// the row so it leaves the unpublished queue; the local TapRecord stays
+  /// in history for forensics.
+  void _handleAckFailure(String recordId, Map<String, dynamic> res) {
+    final detail = (res['detail']?.toString() ?? '').toLowerCase();
+    debugPrint('[SyncService] Failed to sync record $recordId: $detail');
+    if (_isTerminalDetail(detail)) {
+      unawaited(db.markPublished(recordId, _nowSeconds()));
+    }
+  }
+
+  bool _isTerminalDetail(String detail) {
+    if (detail.contains('not found')) return true;
+    if (detail.contains('tidak ditemukan')) return true;
+    if (detail.contains('deactivat')) return true;
+    return false;
+  }
+
+  int _nowSeconds() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
   String? _extractUserIdFromRecordId(String recordId) {
     final match = RegExp(

@@ -2,6 +2,13 @@ import 'dart:io';
 import 'dart:convert';
 import 'hik_event.dart';
 
+/// Adapts our canonical dashed UUID (`a1b2…-1234-…`) to Hikvision's
+/// `employeeNo` field which is 32-char hex with no separators. This is a
+/// protocol constraint of the device, not a fragmentation issue — keep all
+/// Hikvision call sites going through this single helper so the convention
+/// has exactly one definition.
+String hikvisionEmployeeNoFor(String userId) => userId.replaceAll('-', '');
+
 abstract class HikvisionDevicePort {
   Future<String> get(
     String path, {
@@ -200,14 +207,13 @@ class IsapiClient implements HikvisionDevicePort {
   }
 
   /// Create or update a person on the Hikvision device.
-  /// Strips hyphens from employeeNo (Hikvision max 32 chars, UUID is 36).
   /// POST Record to create, if already exists PUT SetUp to update.
   @override
   Future<void> upsertPerson({
     required String employeeNo,
     required String name,
   }) async {
-    final hikId = employeeNo.replaceAll('-', '');
+    final hikId = hikvisionEmployeeNoFor(employeeNo);
     final payload = {
       'UserInfo': {
         'employeeNo': hikId,
@@ -243,7 +249,7 @@ class IsapiClient implements HikvisionDevicePort {
     required String rfidNumber,
     required String employeeNo,
   }) async {
-    final hikId = employeeNo.replaceAll('-', '');
+    final hikId = hikvisionEmployeeNoFor(employeeNo);
     final payload = {
       'CardInfo': {
         'cardNo': rfidNumber,
@@ -284,7 +290,7 @@ class IsapiClient implements HikvisionDevicePort {
   /// Delete a person from the device.
   @override
   Future<void> deletePerson({required String employeeNo}) async {
-    final hikId = employeeNo.replaceAll('-', '');
+    final hikId = hikvisionEmployeeNoFor(employeeNo);
     await putJson('/ISAPI/AccessControl/UserInfo/Delete?format=json', {
       'UserInfoDelCond': {
         'employeeNoList': [
