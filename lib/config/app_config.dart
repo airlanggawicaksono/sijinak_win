@@ -39,10 +39,7 @@ String _pickFirstNonEmpty(List<String?> values) {
 String _normalizeLegacyServerUrl(String? value) {
   final v = (value ?? '').trim();
   if (v.isEmpty) return '';
-  final legacyDefaults = {
-    'http://localhost:2385',
-    'http://localhost:2385/',
-  };
+  final legacyDefaults = {'http://localhost:2385', 'http://localhost:2385/'};
   return legacyDefaults.contains(v) ? '' : v;
 }
 
@@ -78,8 +75,7 @@ class AppConfig {
   bool get isHikvisionConfigured =>
       hikvisionIp.isNotEmpty && hikvisionPassword.isNotEmpty;
 
-  bool get isServerConfigured =>
-      serverUrl.isNotEmpty && apiKey.isNotEmpty;
+  bool get isServerConfigured => serverUrl.isNotEmpty && apiKey.isNotEmpty;
 
   bool get isWablasConfigured =>
       wablasBaseUrl.isNotEmpty &&
@@ -96,7 +92,8 @@ class AppConfig {
     try {
       final file = await _configFile;
       if (await file.exists()) {
-        final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        final json =
+            jsonDecode(await file.readAsString()) as Map<String, dynamic>;
         return AppConfig(
           hikvisionIp: _pickFirstNonEmpty([
             json['hikvision_ip'] as String?,
@@ -112,7 +109,7 @@ class AppConfig {
           ]),
           hikvisionMac: _pickFirstNonEmpty([
             json['hikvision_mac'] as String?,
-            '4c:24:ce:99:a0:aa',
+            '4C:24:CE:99:A0:AA',
           ]),
           serverUrl: _pickFirstNonEmpty([
             env['BACKEND_URL'],
@@ -157,18 +154,20 @@ class AppConfig {
   Future<void> save() async {
     final file = await _configFile;
     await file.parent.create(recursive: true);
-    await file.writeAsString(const JsonEncoder.withIndent('  ').convert({
-      'hikvision_ip': hikvisionIp,
-      'hikvision_user': hikvisionUser,
-      'hikvision_password': hikvisionPassword,
-      'hikvision_mac': hikvisionMac,
-      'server_url': serverUrl,
-      'desktop_api_key': apiKey,
-      'wablas_base_url': wablasBaseUrl,
-      'wablas_api_key': wablasApiKey,
-      'wablas_sec_key': wablasSecKey,
-      'thermal_printer_key': thermalPrinterKey,
-      'thermal_printer_name': thermalPrinterName,
-    }));
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert({
+        'hikvision_ip': hikvisionIp,
+        'hikvision_user': hikvisionUser,
+        'hikvision_password': hikvisionPassword,
+        'hikvision_mac': hikvisionMac,
+        'server_url': serverUrl,
+        'desktop_api_key': apiKey,
+        'wablas_base_url': wablasBaseUrl,
+        'wablas_api_key': wablasApiKey,
+        'wablas_sec_key': wablasSecKey,
+        'thermal_printer_key': thermalPrinterKey,
+        'thermal_printer_name': thermalPrinterName,
+      }),
+    );
   }
 }

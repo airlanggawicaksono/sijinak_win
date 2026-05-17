@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../data/hikvision/isapi_client.dart';
 import '../../data/local/database.dart';
 import '../../data/remote/api_client.dart';
 
@@ -21,11 +22,21 @@ class CardOutboxWorker {
   final AppDatabase db;
   final BackendApiPort api;
 
+  /// Fired after each successful or revert-triggering action so the HikSyncWorker
+  /// can drain the row this enqueues on the same heartbeat instead of waiting
+  /// for its periodic tick. Optional — runtime wires this to
+  /// [HikSyncWorker.tick]; tests can leave it null.
+  final Future<void> Function()? onBackendAck;
+
   Timer? _timer;
   bool _ticking = false;
   bool _started = false;
 
-  CardOutboxWorker({required this.db, required this.api});
+  CardOutboxWorker({
+    required this.db,
+    required this.api,
+    this.onBackendAck,
+  });
 
   Future<void> start() async {
     if (_started) return;
@@ -74,6 +85,32 @@ class CardOutboxWorker {
   Future<void> _markSuccess(CardOutboxData row) async {
     await db.markCardOutboxDone(row.id);
     await db.setStudentCardSyncStatus(row.userId, 'synced');
+    await _enqueueHikSideEffect(row);
+    final cb = onBackendAck;
+    if (cb != null) await cb();
+  }
+
+  /// BE confirmed the canonical card change. Mirror that change to the local
+  /// Hik device via the HikOutbox. Worker filters out no-op transitions
+  /// (null → null) inside `enqueueHikWrite`.
+  Future<void> _enqueueHikSideEffect(CardOutboxData row) async {
+    final newRfid = row.newRfid;
+    final oldRfid = row.oldRfid;
+    final hasNew = newRfid != null && newRfid.isNotEmpty;
+    final hasOld = oldRfid != null && oldRfid.isNotEmpty;
+
+    final operation = hasNew ? HikOpType.upsertCard : HikOpType.deleteCard;
+    if (operation == HikOpType.deleteCard && !hasOld) return;
+
+    final student = await db.getStudentByUserId(row.userId);
+    await db.enqueueHikWrite(
+      userId: row.userId,
+      employeeNo: hikvisionEmployeeNoFor(row.userId),
+      operation: operation,
+      name: student?.nama,
+      oldRfid: oldRfid,
+      newRfid: newRfid,
+    );
   }
 
   Future<void> _handleApiError(CardOutboxData row, ApiException e) async {
@@ -115,6 +152,8 @@ class CardOutboxWorker {
   Future<void> _revertAndDie(CardOutboxData row, String error) async {
     await db.markCardOutboxDead(row.id, error);
     await db.revertStudentCard(row.userId, row.oldRfid);
+    // No Hik undo needed: Hik writes only fire from _markSuccess, so a
+    // revert path means we never touched the device for this row.
     debugPrint(
       '[CardOutboxWorker] reverted ${row.userId} → ${row.oldRfid} ($error)',
     );

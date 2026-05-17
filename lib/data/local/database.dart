@@ -5,7 +5,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import '../hikvision/isapi_client.dart' show hikvisionEmployeeNoFor;
 import 'tables/card_outbox.dart';
+import 'tables/hik_outbox.dart';
 import 'tables/students.dart';
 import 'tables/tap_records.dart';
 
@@ -34,6 +36,14 @@ abstract class StudentStorePort {
     required String? oldRfid,
     required String? newRfid,
   });
+  Future<String?> enqueueHikWrite({
+    required String userId,
+    required String employeeNo,
+    required String operation,
+    String? name,
+    String? oldRfid,
+    String? newRfid,
+  });
   Future<void> setStudentCardSyncStatus(String userId, String status);
 }
 
@@ -56,6 +66,38 @@ abstract class StudentDeletionPort {
   /// belonging to that user (kills the infinite retry loop that would
   /// otherwise re-push attendance to a now-deleted user).
   Future<void> forgetStudent(String userId);
+}
+
+/// Three operations sijinak can ask its Hikvision device to perform.
+/// Wire format: stored in `HikOutbox.operation` as one of these strings.
+class HikOpType {
+  static const String upsertCard = 'upsert_card';
+  static const String deleteCard = 'delete_card';
+  static const String deletePerson = 'delete_person';
+}
+
+abstract class HikOutboxPort {
+  /// Enqueue a Hik write. No-op (returns null) when the requested change
+  /// would be a no-op (e.g. card transitioning null → null).
+  Future<String?> enqueueHikWrite({
+    required String userId,
+    required String employeeNo,
+    required String operation,
+    String? name,
+    String? oldRfid,
+    String? newRfid,
+  });
+
+  Future<List<HikOutboxData>> dueHikOutboxRows({required int nowSec, int limit = 20});
+
+  Future<void> markHikOutboxDone(String id);
+
+  Future<void> bumpHikOutboxRetry({
+    required String id,
+    required int attempts,
+    required int nextAttemptAt,
+    required String error,
+  });
 }
 
 abstract class CardOutboxPort {
@@ -108,7 +150,7 @@ class StudentSnapshotSyncResult {
   });
 }
 
-@DriftDatabase(tables: [Students, TapRecords, CardOutbox])
+@DriftDatabase(tables: [Students, TapRecords, CardOutbox, HikOutbox])
 class AppDatabase extends _$AppDatabase
     implements
         StudentStorePort,
@@ -116,13 +158,14 @@ class AppDatabase extends _$AppDatabase
         SyncStorePort,
         AbsensiInvalidatorPort,
         StudentDeletionPort,
-        CardOutboxPort {
+        CardOutboxPort,
+        HikOutboxPort {
   AppDatabase._() : super(_openConnection());
 
   static final AppDatabase instance = AppDatabase._();
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -157,6 +200,9 @@ class AppDatabase extends _$AppDatabase
             // existed as a column. Drop + recreate at current schema.
             await m.deleteTable('tap_records');
             await m.createTable(tapRecords);
+          }
+          if (from < 9) {
+            await m.createTable(hikOutbox);
           }
         },
       );
@@ -305,6 +351,15 @@ class AppDatabase extends _$AppDatabase
         .toSet()
         .toList();
 
+    // Side-effect: tell sijinak's HikSyncWorker about every divergence the
+    // snapshot just resolved. BE is the source of truth; Hik is downstream.
+    await _enqueueHikSnapshotDiffs(
+      cardChanged: cardChangedUserIds,
+      removedUserIds: removedUserIds,
+      beforeByUserId: beforeByUserId,
+      rowsByUserId: {for (final r in rows) r.userId.value: r},
+    );
+
     return StudentSnapshotSyncResult(
       removedUserIds: removedUserIds,
       removedCardNos: removedCardNos,
@@ -401,8 +456,12 @@ class AppDatabase extends _$AppDatabase
       await (delete(tapRecords)
             ..where((r) => r.id.like('${userId}_%') & r.publishedAt.isNull()))
           .go();
-      await (delete(students)..where((s) => s.userId.equals(userId))).go();
+      // Discard any pending sijinak→BE card writes — student no longer exists.
       await (delete(cardOutbox)..where((c) => c.userId.equals(userId))).go();
+      // Discard any pending Hik upsert/delete-card ops — they'll be replaced
+      // by a fresh deletePerson below.
+      await (delete(hikOutbox)..where((h) => h.userId.equals(userId))).go();
+      await (delete(students)..where((s) => s.userId.equals(userId))).go();
     });
   }
 
@@ -510,6 +569,138 @@ class AppDatabase extends _$AppDatabase
         rfidNumber: Value(oldRfid),
         cardSyncStatus: const Value('failed'),
       ),
+    );
+  }
+
+  // ── Hik Outbox ────────────────────────────────────────────────────────
+
+  @override
+  Future<String?> enqueueHikWrite({
+    required String userId,
+    required String employeeNo,
+    required String operation,
+    String? name,
+    String? oldRfid,
+    String? newRfid,
+  }) async {
+    if (!_shouldEnqueueHikOp(operation, oldRfid, newRfid)) return null;
+
+    final id = _uuid.v4();
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await into(hikOutbox).insert(
+      HikOutboxCompanion(
+        id: Value(id),
+        userId: Value(userId),
+        employeeNo: Value(employeeNo),
+        name: Value(name),
+        oldRfid: Value(oldRfid),
+        newRfid: Value(newRfid),
+        operation: Value(operation),
+        status: const Value('queued'),
+        attempts: const Value(0),
+        nextAttemptAt: Value(now),
+        createdAt: Value(now),
+      ),
+    );
+    return id;
+  }
+
+  /// Filter out enqueues that would have no effect on the device.
+  bool _shouldEnqueueHikOp(String operation, String? oldRfid, String? newRfid) {
+    switch (operation) {
+      case HikOpType.upsertCard:
+        // Nothing to push if there's no card. Avoid registering a person on
+        // Hik that will never tap anything.
+        return newRfid != null && newRfid.isNotEmpty;
+      case HikOpType.deleteCard:
+        // Nothing to delete if there was no card on the device anyway.
+        return oldRfid != null && oldRfid.isNotEmpty;
+      case HikOpType.deletePerson:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  @override
+  Future<List<HikOutboxData>> dueHikOutboxRows({
+    required int nowSec,
+    int limit = 20,
+  }) {
+    return (select(hikOutbox)
+          ..where((h) =>
+              h.status.equals('queued') &
+              h.nextAttemptAt.isSmallerOrEqualValue(nowSec))
+          ..orderBy([(h) => OrderingTerm.asc(h.createdAt)])
+          ..limit(limit))
+        .get();
+  }
+
+  @override
+  Future<void> markHikOutboxDone(String id) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await (update(hikOutbox)..where((h) => h.id.equals(id))).write(
+      HikOutboxCompanion(
+        status: const Value('done'),
+        completedAt: Value(now),
+        lastError: const Value(null),
+      ),
+    );
+  }
+
+  @override
+  Future<void> bumpHikOutboxRetry({
+    required String id,
+    required int attempts,
+    required int nextAttemptAt,
+    required String error,
+  }) async {
+    await (update(hikOutbox)..where((h) => h.id.equals(id))).write(
+      HikOutboxCompanion(
+        attempts: Value(attempts),
+        nextAttemptAt: Value(nextAttemptAt),
+        lastError: Value(error),
+      ),
+    );
+  }
+
+  Future<void> _enqueueHikSnapshotDiffs({
+    required List<String> cardChanged,
+    required List<String> removedUserIds,
+    required Map<String, Student> beforeByUserId,
+    required Map<String, StudentsCompanion> rowsByUserId,
+  }) async {
+    for (final userId in cardChanged) {
+      await _enqueueHikDiffForCardChange(userId, beforeByUserId, rowsByUserId);
+    }
+    for (final userId in removedUserIds) {
+      await enqueueHikWrite(
+        userId: userId,
+        employeeNo: hikvisionEmployeeNoFor(userId),
+        operation: HikOpType.deletePerson,
+      );
+    }
+  }
+
+  Future<void> _enqueueHikDiffForCardChange(
+    String userId,
+    Map<String, Student> beforeByUserId,
+    Map<String, StudentsCompanion> rowsByUserId,
+  ) async {
+    final row = rowsByUserId[userId];
+    if (row == null) return;
+    final before = beforeByUserId[userId];
+    final newRfid = row.rfidNumber.present ? row.rfidNumber.value : null;
+    final oldRfid = before?.rfidNumber;
+    final hasNew = newRfid != null && newRfid.isNotEmpty;
+    final operation = hasNew ? HikOpType.upsertCard : HikOpType.deleteCard;
+    await enqueueHikWrite(
+      userId: userId,
+      employeeNo: hikvisionEmployeeNoFor(userId),
+      operation: operation,
+      name: row.nama.present ? row.nama.value : before?.nama,
+      oldRfid: oldRfid,
+      newRfid: newRfid,
     );
   }
 

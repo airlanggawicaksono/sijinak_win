@@ -1723,12 +1723,770 @@ class CardOutboxCompanion extends UpdateCompanion<CardOutboxData> {
   }
 }
 
+class $HikOutboxTable extends HikOutbox
+    with TableInfo<$HikOutboxTable, HikOutboxData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $HikOutboxTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _employeeNoMeta = const VerificationMeta(
+    'employeeNo',
+  );
+  @override
+  late final GeneratedColumn<String> employeeNo = GeneratedColumn<String>(
+    'employee_no',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _oldRfidMeta = const VerificationMeta(
+    'oldRfid',
+  );
+  @override
+  late final GeneratedColumn<String> oldRfid = GeneratedColumn<String>(
+    'old_rfid',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _newRfidMeta = const VerificationMeta(
+    'newRfid',
+  );
+  @override
+  late final GeneratedColumn<String> newRfid = GeneratedColumn<String>(
+    'new_rfid',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _operationMeta = const VerificationMeta(
+    'operation',
+  );
+  @override
+  late final GeneratedColumn<String> operation = GeneratedColumn<String>(
+    'operation',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('queued'),
+  );
+  static const VerificationMeta _attemptsMeta = const VerificationMeta(
+    'attempts',
+  );
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _nextAttemptAtMeta = const VerificationMeta(
+    'nextAttemptAt',
+  );
+  @override
+  late final GeneratedColumn<int> nextAttemptAt = GeneratedColumn<int>(
+    'next_attempt_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _completedAtMeta = const VerificationMeta(
+    'completedAt',
+  );
+  @override
+  late final GeneratedColumn<int> completedAt = GeneratedColumn<int>(
+    'completed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    userId,
+    employeeNo,
+    name,
+    oldRfid,
+    newRfid,
+    operation,
+    status,
+    attempts,
+    nextAttemptAt,
+    lastError,
+    createdAt,
+    completedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'hik_outbox';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<HikOutboxData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('employee_no')) {
+      context.handle(
+        _employeeNoMeta,
+        employeeNo.isAcceptableOrUnknown(data['employee_no']!, _employeeNoMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_employeeNoMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    }
+    if (data.containsKey('old_rfid')) {
+      context.handle(
+        _oldRfidMeta,
+        oldRfid.isAcceptableOrUnknown(data['old_rfid']!, _oldRfidMeta),
+      );
+    }
+    if (data.containsKey('new_rfid')) {
+      context.handle(
+        _newRfidMeta,
+        newRfid.isAcceptableOrUnknown(data['new_rfid']!, _newRfidMeta),
+      );
+    }
+    if (data.containsKey('operation')) {
+      context.handle(
+        _operationMeta,
+        operation.isAcceptableOrUnknown(data['operation']!, _operationMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_operationMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(
+        _attemptsMeta,
+        attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta),
+      );
+    }
+    if (data.containsKey('next_attempt_at')) {
+      context.handle(
+        _nextAttemptAtMeta,
+        nextAttemptAt.isAcceptableOrUnknown(
+          data['next_attempt_at']!,
+          _nextAttemptAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_nextAttemptAtMeta);
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+        _completedAtMeta,
+        completedAt.isAcceptableOrUnknown(
+          data['completed_at']!,
+          _completedAtMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  HikOutboxData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return HikOutboxData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_id'],
+      )!,
+      employeeNo: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}employee_no'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      ),
+      oldRfid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}old_rfid'],
+      ),
+      newRfid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}new_rfid'],
+      ),
+      operation: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      nextAttemptAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}next_attempt_at'],
+      )!,
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+      completedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_at'],
+      ),
+    );
+  }
+
+  @override
+  $HikOutboxTable createAlias(String alias) {
+    return $HikOutboxTable(attachedDatabase, alias);
+  }
+}
+
+class HikOutboxData extends DataClass implements Insertable<HikOutboxData> {
+  final String id;
+  final String userId;
+  final String employeeNo;
+  final String? name;
+  final String? oldRfid;
+  final String? newRfid;
+  final String operation;
+  final String status;
+  final int attempts;
+  final int nextAttemptAt;
+  final String? lastError;
+  final int createdAt;
+  final int? completedAt;
+  const HikOutboxData({
+    required this.id,
+    required this.userId,
+    required this.employeeNo,
+    this.name,
+    this.oldRfid,
+    this.newRfid,
+    required this.operation,
+    required this.status,
+    required this.attempts,
+    required this.nextAttemptAt,
+    this.lastError,
+    required this.createdAt,
+    this.completedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    map['employee_no'] = Variable<String>(employeeNo);
+    if (!nullToAbsent || name != null) {
+      map['name'] = Variable<String>(name);
+    }
+    if (!nullToAbsent || oldRfid != null) {
+      map['old_rfid'] = Variable<String>(oldRfid);
+    }
+    if (!nullToAbsent || newRfid != null) {
+      map['new_rfid'] = Variable<String>(newRfid);
+    }
+    map['operation'] = Variable<String>(operation);
+    map['status'] = Variable<String>(status);
+    map['attempts'] = Variable<int>(attempts);
+    map['next_attempt_at'] = Variable<int>(nextAttemptAt);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    map['created_at'] = Variable<int>(createdAt);
+    if (!nullToAbsent || completedAt != null) {
+      map['completed_at'] = Variable<int>(completedAt);
+    }
+    return map;
+  }
+
+  HikOutboxCompanion toCompanion(bool nullToAbsent) {
+    return HikOutboxCompanion(
+      id: Value(id),
+      userId: Value(userId),
+      employeeNo: Value(employeeNo),
+      name: name == null && nullToAbsent ? const Value.absent() : Value(name),
+      oldRfid: oldRfid == null && nullToAbsent
+          ? const Value.absent()
+          : Value(oldRfid),
+      newRfid: newRfid == null && nullToAbsent
+          ? const Value.absent()
+          : Value(newRfid),
+      operation: Value(operation),
+      status: Value(status),
+      attempts: Value(attempts),
+      nextAttemptAt: Value(nextAttemptAt),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      createdAt: Value(createdAt),
+      completedAt: completedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAt),
+    );
+  }
+
+  factory HikOutboxData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return HikOutboxData(
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      employeeNo: serializer.fromJson<String>(json['employeeNo']),
+      name: serializer.fromJson<String?>(json['name']),
+      oldRfid: serializer.fromJson<String?>(json['oldRfid']),
+      newRfid: serializer.fromJson<String?>(json['newRfid']),
+      operation: serializer.fromJson<String>(json['operation']),
+      status: serializer.fromJson<String>(json['status']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      nextAttemptAt: serializer.fromJson<int>(json['nextAttemptAt']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      completedAt: serializer.fromJson<int?>(json['completedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'employeeNo': serializer.toJson<String>(employeeNo),
+      'name': serializer.toJson<String?>(name),
+      'oldRfid': serializer.toJson<String?>(oldRfid),
+      'newRfid': serializer.toJson<String?>(newRfid),
+      'operation': serializer.toJson<String>(operation),
+      'status': serializer.toJson<String>(status),
+      'attempts': serializer.toJson<int>(attempts),
+      'nextAttemptAt': serializer.toJson<int>(nextAttemptAt),
+      'lastError': serializer.toJson<String?>(lastError),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'completedAt': serializer.toJson<int?>(completedAt),
+    };
+  }
+
+  HikOutboxData copyWith({
+    String? id,
+    String? userId,
+    String? employeeNo,
+    Value<String?> name = const Value.absent(),
+    Value<String?> oldRfid = const Value.absent(),
+    Value<String?> newRfid = const Value.absent(),
+    String? operation,
+    String? status,
+    int? attempts,
+    int? nextAttemptAt,
+    Value<String?> lastError = const Value.absent(),
+    int? createdAt,
+    Value<int?> completedAt = const Value.absent(),
+  }) => HikOutboxData(
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    employeeNo: employeeNo ?? this.employeeNo,
+    name: name.present ? name.value : this.name,
+    oldRfid: oldRfid.present ? oldRfid.value : this.oldRfid,
+    newRfid: newRfid.present ? newRfid.value : this.newRfid,
+    operation: operation ?? this.operation,
+    status: status ?? this.status,
+    attempts: attempts ?? this.attempts,
+    nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+    lastError: lastError.present ? lastError.value : this.lastError,
+    createdAt: createdAt ?? this.createdAt,
+    completedAt: completedAt.present ? completedAt.value : this.completedAt,
+  );
+  HikOutboxData copyWithCompanion(HikOutboxCompanion data) {
+    return HikOutboxData(
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      employeeNo: data.employeeNo.present
+          ? data.employeeNo.value
+          : this.employeeNo,
+      name: data.name.present ? data.name.value : this.name,
+      oldRfid: data.oldRfid.present ? data.oldRfid.value : this.oldRfid,
+      newRfid: data.newRfid.present ? data.newRfid.value : this.newRfid,
+      operation: data.operation.present ? data.operation.value : this.operation,
+      status: data.status.present ? data.status.value : this.status,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      nextAttemptAt: data.nextAttemptAt.present
+          ? data.nextAttemptAt.value
+          : this.nextAttemptAt,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      completedAt: data.completedAt.present
+          ? data.completedAt.value
+          : this.completedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('HikOutboxData(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('employeeNo: $employeeNo, ')
+          ..write('name: $name, ')
+          ..write('oldRfid: $oldRfid, ')
+          ..write('newRfid: $newRfid, ')
+          ..write('operation: $operation, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('completedAt: $completedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    userId,
+    employeeNo,
+    name,
+    oldRfid,
+    newRfid,
+    operation,
+    status,
+    attempts,
+    nextAttemptAt,
+    lastError,
+    createdAt,
+    completedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is HikOutboxData &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.employeeNo == this.employeeNo &&
+          other.name == this.name &&
+          other.oldRfid == this.oldRfid &&
+          other.newRfid == this.newRfid &&
+          other.operation == this.operation &&
+          other.status == this.status &&
+          other.attempts == this.attempts &&
+          other.nextAttemptAt == this.nextAttemptAt &&
+          other.lastError == this.lastError &&
+          other.createdAt == this.createdAt &&
+          other.completedAt == this.completedAt);
+}
+
+class HikOutboxCompanion extends UpdateCompanion<HikOutboxData> {
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String> employeeNo;
+  final Value<String?> name;
+  final Value<String?> oldRfid;
+  final Value<String?> newRfid;
+  final Value<String> operation;
+  final Value<String> status;
+  final Value<int> attempts;
+  final Value<int> nextAttemptAt;
+  final Value<String?> lastError;
+  final Value<int> createdAt;
+  final Value<int?> completedAt;
+  final Value<int> rowid;
+  const HikOutboxCompanion({
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.employeeNo = const Value.absent(),
+    this.name = const Value.absent(),
+    this.oldRfid = const Value.absent(),
+    this.newRfid = const Value.absent(),
+    this.operation = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextAttemptAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  HikOutboxCompanion.insert({
+    required String id,
+    required String userId,
+    required String employeeNo,
+    this.name = const Value.absent(),
+    this.oldRfid = const Value.absent(),
+    this.newRfid = const Value.absent(),
+    required String operation,
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    required int nextAttemptAt,
+    this.lastError = const Value.absent(),
+    required int createdAt,
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       userId = Value(userId),
+       employeeNo = Value(employeeNo),
+       operation = Value(operation),
+       nextAttemptAt = Value(nextAttemptAt),
+       createdAt = Value(createdAt);
+  static Insertable<HikOutboxData> custom({
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? employeeNo,
+    Expression<String>? name,
+    Expression<String>? oldRfid,
+    Expression<String>? newRfid,
+    Expression<String>? operation,
+    Expression<String>? status,
+    Expression<int>? attempts,
+    Expression<int>? nextAttemptAt,
+    Expression<String>? lastError,
+    Expression<int>? createdAt,
+    Expression<int>? completedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (employeeNo != null) 'employee_no': employeeNo,
+      if (name != null) 'name': name,
+      if (oldRfid != null) 'old_rfid': oldRfid,
+      if (newRfid != null) 'new_rfid': newRfid,
+      if (operation != null) 'operation': operation,
+      if (status != null) 'status': status,
+      if (attempts != null) 'attempts': attempts,
+      if (nextAttemptAt != null) 'next_attempt_at': nextAttemptAt,
+      if (lastError != null) 'last_error': lastError,
+      if (createdAt != null) 'created_at': createdAt,
+      if (completedAt != null) 'completed_at': completedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  HikOutboxCompanion copyWith({
+    Value<String>? id,
+    Value<String>? userId,
+    Value<String>? employeeNo,
+    Value<String?>? name,
+    Value<String?>? oldRfid,
+    Value<String?>? newRfid,
+    Value<String>? operation,
+    Value<String>? status,
+    Value<int>? attempts,
+    Value<int>? nextAttemptAt,
+    Value<String?>? lastError,
+    Value<int>? createdAt,
+    Value<int?>? completedAt,
+    Value<int>? rowid,
+  }) {
+    return HikOutboxCompanion(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      employeeNo: employeeNo ?? this.employeeNo,
+      name: name ?? this.name,
+      oldRfid: oldRfid ?? this.oldRfid,
+      newRfid: newRfid ?? this.newRfid,
+      operation: operation ?? this.operation,
+      status: status ?? this.status,
+      attempts: attempts ?? this.attempts,
+      nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+      lastError: lastError ?? this.lastError,
+      createdAt: createdAt ?? this.createdAt,
+      completedAt: completedAt ?? this.completedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (employeeNo.present) {
+      map['employee_no'] = Variable<String>(employeeNo.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (oldRfid.present) {
+      map['old_rfid'] = Variable<String>(oldRfid.value);
+    }
+    if (newRfid.present) {
+      map['new_rfid'] = Variable<String>(newRfid.value);
+    }
+    if (operation.present) {
+      map['operation'] = Variable<String>(operation.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (nextAttemptAt.present) {
+      map['next_attempt_at'] = Variable<int>(nextAttemptAt.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<int>(completedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('HikOutboxCompanion(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('employeeNo: $employeeNo, ')
+          ..write('name: $name, ')
+          ..write('oldRfid: $oldRfid, ')
+          ..write('newRfid: $newRfid, ')
+          ..write('operation: $operation, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('completedAt: $completedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $StudentsTable students = $StudentsTable(this);
   late final $TapRecordsTable tapRecords = $TapRecordsTable(this);
   late final $CardOutboxTable cardOutbox = $CardOutboxTable(this);
+  late final $HikOutboxTable hikOutbox = $HikOutboxTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -1737,6 +2495,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     students,
     tapRecords,
     cardOutbox,
+    hikOutbox,
   ];
 }
 
@@ -2579,6 +3338,364 @@ typedef $$CardOutboxTableProcessedTableManager =
       CardOutboxData,
       PrefetchHooks Function()
     >;
+typedef $$HikOutboxTableCreateCompanionBuilder =
+    HikOutboxCompanion Function({
+      required String id,
+      required String userId,
+      required String employeeNo,
+      Value<String?> name,
+      Value<String?> oldRfid,
+      Value<String?> newRfid,
+      required String operation,
+      Value<String> status,
+      Value<int> attempts,
+      required int nextAttemptAt,
+      Value<String?> lastError,
+      required int createdAt,
+      Value<int?> completedAt,
+      Value<int> rowid,
+    });
+typedef $$HikOutboxTableUpdateCompanionBuilder =
+    HikOutboxCompanion Function({
+      Value<String> id,
+      Value<String> userId,
+      Value<String> employeeNo,
+      Value<String?> name,
+      Value<String?> oldRfid,
+      Value<String?> newRfid,
+      Value<String> operation,
+      Value<String> status,
+      Value<int> attempts,
+      Value<int> nextAttemptAt,
+      Value<String?> lastError,
+      Value<int> createdAt,
+      Value<int?> completedAt,
+      Value<int> rowid,
+    });
+
+class $$HikOutboxTableFilterComposer
+    extends Composer<_$AppDatabase, $HikOutboxTable> {
+  $$HikOutboxTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get employeeNo => $composableBuilder(
+    column: $table.employeeNo,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get oldRfid => $composableBuilder(
+    column: $table.oldRfid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get newRfid => $composableBuilder(
+    column: $table.newRfid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get operation => $composableBuilder(
+    column: $table.operation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$HikOutboxTableOrderingComposer
+    extends Composer<_$AppDatabase, $HikOutboxTable> {
+  $$HikOutboxTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get employeeNo => $composableBuilder(
+    column: $table.employeeNo,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get oldRfid => $composableBuilder(
+    column: $table.oldRfid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get newRfid => $composableBuilder(
+    column: $table.newRfid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get operation => $composableBuilder(
+    column: $table.operation,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$HikOutboxTableAnnotationComposer
+    extends Composer<_$AppDatabase, $HikOutboxTable> {
+  $$HikOutboxTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get employeeNo => $composableBuilder(
+    column: $table.employeeNo,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get oldRfid =>
+      $composableBuilder(column: $table.oldRfid, builder: (column) => column);
+
+  GeneratedColumn<String> get newRfid =>
+      $composableBuilder(column: $table.newRfid, builder: (column) => column);
+
+  GeneratedColumn<String> get operation =>
+      $composableBuilder(column: $table.operation, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<int> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$HikOutboxTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $HikOutboxTable,
+          HikOutboxData,
+          $$HikOutboxTableFilterComposer,
+          $$HikOutboxTableOrderingComposer,
+          $$HikOutboxTableAnnotationComposer,
+          $$HikOutboxTableCreateCompanionBuilder,
+          $$HikOutboxTableUpdateCompanionBuilder,
+          (
+            HikOutboxData,
+            BaseReferences<_$AppDatabase, $HikOutboxTable, HikOutboxData>,
+          ),
+          HikOutboxData,
+          PrefetchHooks Function()
+        > {
+  $$HikOutboxTableTableManager(_$AppDatabase db, $HikOutboxTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$HikOutboxTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$HikOutboxTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$HikOutboxTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> userId = const Value.absent(),
+                Value<String> employeeNo = const Value.absent(),
+                Value<String?> name = const Value.absent(),
+                Value<String?> oldRfid = const Value.absent(),
+                Value<String?> newRfid = const Value.absent(),
+                Value<String> operation = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<int> nextAttemptAt = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => HikOutboxCompanion(
+                id: id,
+                userId: userId,
+                employeeNo: employeeNo,
+                name: name,
+                oldRfid: oldRfid,
+                newRfid: newRfid,
+                operation: operation,
+                status: status,
+                attempts: attempts,
+                nextAttemptAt: nextAttemptAt,
+                lastError: lastError,
+                createdAt: createdAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String userId,
+                required String employeeNo,
+                Value<String?> name = const Value.absent(),
+                Value<String?> oldRfid = const Value.absent(),
+                Value<String?> newRfid = const Value.absent(),
+                required String operation,
+                Value<String> status = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                required int nextAttemptAt,
+                Value<String?> lastError = const Value.absent(),
+                required int createdAt,
+                Value<int?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => HikOutboxCompanion.insert(
+                id: id,
+                userId: userId,
+                employeeNo: employeeNo,
+                name: name,
+                oldRfid: oldRfid,
+                newRfid: newRfid,
+                operation: operation,
+                status: status,
+                attempts: attempts,
+                nextAttemptAt: nextAttemptAt,
+                lastError: lastError,
+                createdAt: createdAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$HikOutboxTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $HikOutboxTable,
+      HikOutboxData,
+      $$HikOutboxTableFilterComposer,
+      $$HikOutboxTableOrderingComposer,
+      $$HikOutboxTableAnnotationComposer,
+      $$HikOutboxTableCreateCompanionBuilder,
+      $$HikOutboxTableUpdateCompanionBuilder,
+      (
+        HikOutboxData,
+        BaseReferences<_$AppDatabase, $HikOutboxTable, HikOutboxData>,
+      ),
+      HikOutboxData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -2589,4 +3706,6 @@ class $AppDatabaseManager {
       $$TapRecordsTableTableManager(_db, _db.tapRecords);
   $$CardOutboxTableTableManager get cardOutbox =>
       $$CardOutboxTableTableManager(_db, _db.cardOutbox);
+  $$HikOutboxTableTableManager get hikOutbox =>
+      $$HikOutboxTableTableManager(_db, _db.hikOutbox);
 }

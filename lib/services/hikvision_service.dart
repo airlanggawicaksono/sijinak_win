@@ -28,6 +28,25 @@ class HikvisionService {
   AlertStreamStatus _currentStatus = AlertStreamStatus.disconnected;
   AlertStreamStatus get currentStatus => _currentStatus;
 
+  /// When true, listeners that auto-process attendance must bail. Used while a
+  /// CardScanDialog is open so a fresh tap is treated as "assign this card"
+  /// rather than "open masuk for this student".
+  ///
+  /// Reference-counted: nested capture scopes are allowed (e.g. dialog
+  /// reopened while one was still mid-dispose).
+  int _captureDepth = 0;
+  bool get isCapturing => _captureDepth > 0;
+
+  void beginCapture() => _captureDepth++;
+  void endCapture() {
+    if (_captureDepth > 0) _captureDepth--;
+  }
+
+  /// Force-clear capture state. Used by the attendance service on (re)start
+  /// so a prior crash inside a CardScanDialog dispose can't leave the device
+  /// permanently gagged.
+  void resetCapture() => _captureDepth = 0;
+
   HikvisionService({
     HikvisionDevicePort Function(AppConfig config)? clientFactory,
   }) : _clientFactory = clientFactory ??

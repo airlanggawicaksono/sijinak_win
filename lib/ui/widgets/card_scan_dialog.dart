@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/providers.dart';
+import '../../services/hikvision_service.dart';
 import '../../data/hikvision/alert_stream.dart';
 
 /// Dialog that listens for card tap via the shared HikvisionService.
@@ -20,6 +21,10 @@ class _CardScanDialogState extends ConsumerState<CardScanDialog> {
   bool _connected = false;
   final _manualCtrl = TextEditingController();
 
+  /// Cached reference so dispose() can call endCapture without touching `ref`
+  /// (Riverpod forbids ref access after the widget is unmounted).
+  late final HikvisionService _hikService;
+
   /// Only accept events with device time after this cutoff.
   late final DateTime _cutoff;
 
@@ -27,6 +32,8 @@ class _CardScanDialogState extends ConsumerState<CardScanDialog> {
   void initState() {
     super.initState();
     final service = ref.read(hikvisionServiceProvider);
+    _hikService = service;
+    service.beginCapture();
     _connected = service.currentStatus == AlertStreamStatus.connected;
 
     // Baseline = last known device time + 2 seconds
@@ -61,6 +68,7 @@ class _CardScanDialogState extends ConsumerState<CardScanDialog> {
     _sub?.cancel();
     _statusSub?.cancel();
     _manualCtrl.dispose();
+    _hikService.endCapture();
     super.dispose();
   }
 

@@ -19,6 +19,10 @@ class AttendanceService {
   void start() {
     if (_running) return;
     _running = true;
+    // Defensive: a previous run may have crashed inside CardScanDialog.dispose
+    // before endCapture() ran. Clear any stale depth so attendance isn't
+    // permanently gagged.
+    hikService.resetCapture();
     _sub = hikService.events.listen(_handleEvent);
   }
 
@@ -46,6 +50,10 @@ class AttendanceService {
 
   Future<void> _handleEvent(HikEvent event) async {
     if (event.rfidNumber.isEmpty) return;
+    // While CardScanDialog is open, taps are consumed by the dialog (treated
+    // as "assign this card to the student being edited"). Don't double-fire
+    // absen/izin against the existing owner.
+    if (hikService.isCapturing) return;
 
     Student? student;
     if (event.employeeNo != null && event.employeeNo!.isNotEmpty) {

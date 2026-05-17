@@ -10,8 +10,10 @@ import '../../data/remote/api_client.dart';
 import '../../providers/providers.dart';
 import '../../services/app_pubsub.dart';
 import '../../services/server_service.dart';
+import '../../services/hik_outbox/hik_reconcile_service.dart';
 import '../widgets/card_scan_dialog.dart';
 import '../widgets/bulk_card_assign_dialog.dart';
+import '../widgets/hik_reconcile_dialog.dart';
 
 class StudentsScreen extends ConsumerStatefulWidget {
   const StudentsScreen({super.key});
@@ -194,6 +196,8 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     );
     if (newCardNo == null || !mounted) return;
 
+    if (!await _confirmReassignIfOwned(newCardNo, student)) return;
+
     await _applyCardChange(
       student: student,
       newRfidNumber: newCardNo,
@@ -216,6 +220,8 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
       builder: (_) => const CardScanDialog(),
     );
     if (rfidNumber == null || !mounted) return;
+
+    if (!await _confirmReassignIfOwned(rfidNumber, student)) return;
 
     await _applyCardChange(
       student: student,
@@ -264,6 +270,46 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     return trimmed.isEmpty ? null : trimmed;
   }
 
+  /// Looks up the scanned card in local Drift. If a *different* student
+  /// already owns it, prompts the admin to either reassign (BE will move the
+  /// card) or cancel. Returns true if the caller should proceed.
+  Future<bool> _confirmReassignIfOwned(
+    String rfidNumber,
+    Student target,
+  ) async {
+    final db = ref.read(databaseProvider);
+    final existing = await db.getStudentByCard(rfidNumber);
+    if (existing == null) return true;
+    if (existing.userId == target.userId) return true;
+    if (!mounted) return false;
+
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.warning_amber, color: Colors.orange, size: 32),
+        title: const Text('Kartu sudah terdaftar'),
+        content: Text(
+          'Kartu $rfidNumber sedang dipakai oleh:\n'
+          '  • ${existing.nama}'
+          '${existing.nisn != null ? ' (NISN ${existing.nisn})' : ''}\n\n'
+          'Lanjut akan memindahkan kartu ke ${target.nama}.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Pindahkan'),
+          ),
+        ],
+      ),
+    );
+    return go == true;
+  }
+
   Future<void> _mirrorLocalCard(String userId, String? newRfidNumber) async {
     final db = ref.read(databaseProvider);
     final normalized = _normalizeRfid(newRfidNumber);
@@ -272,6 +318,66 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
       return;
     }
     await db.assignCardToStudent(userId, normalized);
+  }
+
+  /// Explicit reconcile flow:
+  ///   1. Build plan (read device + diff against local).
+  ///   2. Show preview dialog with counts + sample reasons.
+  ///   3. On confirm, enqueue every entry into HikOutbox + tick worker.
+  ///
+  /// Pure side-effect: device converges toward local DB state. Never the
+  /// other way around.
+  Future<void> _runHikReconcile() async {
+    final service = ref.read(hikReconcileServiceProvider);
+    if (service == null) {
+      _showSnack('Hikvision belum dikonfigurasi di Settings');
+      return;
+    }
+
+    HikReconcilePlan plan;
+    try {
+      plan = await _buildPlanWithLoader(service);
+    } catch (e) {
+      _showSnack('Gagal membaca device: $e');
+      return;
+    }
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => HikReconcileDialog(plan: plan),
+    );
+    if (confirmed != true || !mounted) return;
+    if (plan.isEmpty) return;
+
+    final enqueued = await service.enqueuePlan(plan);
+    unawaited(ref.read(sijinakRuntimeProvider).tickHikOutbox());
+    _showSnack('$enqueued perubahan diantrekan ke Hik');
+  }
+
+  Future<HikReconcilePlan> _buildPlanWithLoader(HikReconcileService service) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: SizedBox(
+          height: 80,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 12),
+                Text('Membaca state Hikvision...'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    return service.buildPlan().whenComplete(() {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    });
   }
 
   Future<void> _importCardsCsv() async {
@@ -562,6 +668,12 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _runHikReconcile,
+                    icon: const Icon(Icons.dvr_outlined, size: 18),
+                    label: const Text('Sync ke Hik'),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
