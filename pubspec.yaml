@@ -1,0 +1,46 @@
+name: sijinak_win
+description: "Sijinak Desktop - Attendance System"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Local DB
+  drift: ^2.22.0
+  sqlite3_flutter_libs: ^0.6.0+eol
+
+  # HTTP & networking
+  dio: ^5.7.0
+
+  # State management
+  flutter_riverpod: ^3.3.1
+
+  # Window control
+  window_manager: ^0.5.1
+
+  # Utils
+  uuid: ^4.5.0
+  path_provider: ^2.1.0
+  path: ^1.9.0
+  file_picker: ^10.3.10
+  fbroadcast: 2.0.0
+  flutter_thermal_printer: 1.2.1+1
+  excel: ^4.0.6
+  web_socket_channel: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  drift_dev: ^2.22.0
+  build_runner: ^2.4.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - lib/ui/asset/
