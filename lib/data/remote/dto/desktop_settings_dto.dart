@@ -4,14 +4,14 @@
 /// so future fields (work hours, holiday flags) add without breaking call sites.
 class DesktopSettingsDTO {
   /// Cutoff time of day after which `absen_masuk` is classified TERLAMBAT.
-  /// Encoded as `HH:MM:SS` over the wire.
+  /// Encoded as `HH:MM` over the wire (BE strips seconds via HhmmTime).
   final String lateCutoffTime;
 
   const DesktopSettingsDTO({required this.lateCutoffTime});
 
   factory DesktopSettingsDTO.fromJson(Map<String, dynamic> json) {
     return DesktopSettingsDTO(
-      lateCutoffTime: (json['late_cutoff_time'] as String?) ?? '07:15:00',
+      lateCutoffTime: (json['late_cutoff_time'] as String?) ?? '07:15',
     );
   }
 

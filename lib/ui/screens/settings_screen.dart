@@ -918,7 +918,7 @@ class _ServerCutoffBadge extends ConsumerWidget {
     final colors = Theme.of(context).colorScheme;
     final cutoffText = settings == null
         ? 'Belum tersinkron dari server'
-        : (settings.lateCutoffTime as String).substring(0, 5);
+        : settings.lateCutoffTime as String;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
