@@ -109,6 +109,7 @@ class AppConfig {
           ]),
           hikvisionMac: _pickFirstNonEmpty([
             json['hikvision_mac'] as String?,
+            env['HIK_MAC'],
             '4C:24:CE:99:A0:AA',
           ]),
           serverUrl: _pickFirstNonEmpty([
@@ -144,6 +145,10 @@ class AppConfig {
     return AppConfig(
       serverUrl: env['BACKEND_URL'] ?? '',
       hikvisionPassword: env['HIK_PASSWORD'] ?? '',
+      hikvisionMac: _pickFirstNonEmpty([
+        env['HIK_MAC'],
+        '4C:24:CE:99:A0:AA',
+      ]),
       apiKey: env['DESKTOP_API_KEY'] ?? '',
       wablasBaseUrl: env['WABLAS_BASE_URL'] ?? '',
       wablasApiKey: env['WABLAS_API_KEY'] ?? '',
