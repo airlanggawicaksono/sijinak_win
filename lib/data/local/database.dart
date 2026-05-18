@@ -572,6 +572,83 @@ class AppDatabase extends _$AppDatabase
     );
   }
 
+  /// Reset the most-recent dead CardOutbox row for [userId] back to queued
+  /// so the worker retries. Also restores Students.rfidNumber to the intended
+  /// newRfid (the revert path had set it back to oldRfid) and resets
+  /// cardSyncStatus to 'pending' so the UI reflects the in-flight state.
+  Future<void> requeueDeadCardOutbox(String userId) async {
+    final deadRows = await (select(cardOutbox)
+          ..where((r) => r.userId.equals(userId) & r.status.equals('dead'))
+          ..orderBy([(r) => OrderingTerm.desc(r.createdAt)])
+          ..limit(1))
+        .get();
+    if (deadRows.isEmpty) return;
+    final row = deadRows.first;
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await (update(cardOutbox)..where((r) => r.id.equals(row.id))).write(
+      CardOutboxCompanion(
+        status: const Value('queued'),
+        attempts: const Value(0),
+        nextAttemptAt: Value(nowSec),
+        lastError: const Value(null),
+      ),
+    );
+    await revertStudentCard(userId, row.newRfid);
+    await setStudentCardSyncStatus(userId, 'pending');
+  }
+
+  /// Accelerate all queued HikOutbox rows for [userId] — set nextAttemptAt=now
+  /// so the next worker tick picks them up without waiting out the backoff.
+  Future<void> accelerateHikOutbox(String userId) async {
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await (update(hikOutbox)
+          ..where((r) => r.userId.equals(userId) & r.status.equals('queued')))
+        .write(HikOutboxCompanion(nextAttemptAt: Value(nowSec)));
+  }
+
+  /// Requeue ALL dead CardOutbox rows across all users. For each affected user,
+  /// also restores Students.rfidNumber to the intended newRfid and resets
+  /// cardSyncStatus to 'pending'. Returns count of affected users.
+  Future<int> requeueAllDeadCardOutbox() async {
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final deadRows = await (select(cardOutbox)
+          ..where((r) => r.status.equals('dead'))
+          ..orderBy([(r) => OrderingTerm.desc(r.createdAt)]))
+        .get();
+    if (deadRows.isEmpty) return 0;
+    final latestByUser = _latestDeadRowByUser(deadRows);
+    await transaction(() async {
+      await (update(cardOutbox)..where((r) => r.status.equals('dead'))).write(
+        CardOutboxCompanion(
+          status: const Value('queued'),
+          attempts: const Value(0),
+          nextAttemptAt: Value(nowSec),
+          lastError: const Value(null),
+        ),
+      );
+      for (final entry in latestByUser.entries) {
+        await revertStudentCard(entry.key, entry.value.newRfid);
+        await setStudentCardSyncStatus(entry.key, 'pending');
+      }
+    });
+    return latestByUser.length;
+  }
+
+  Map<String, CardOutboxData> _latestDeadRowByUser(List<CardOutboxData> rows) {
+    final result = <String, CardOutboxData>{};
+    for (final row in rows) {
+      result.putIfAbsent(row.userId, () => row);
+    }
+    return result;
+  }
+
+  /// Accelerate ALL queued HikOutbox rows — set nextAttemptAt=now globally.
+  Future<void> accelerateAllHikOutbox() async {
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await (update(hikOutbox)..where((r) => r.status.equals('queued')))
+        .write(HikOutboxCompanion(nextAttemptAt: Value(nowSec)));
+  }
+
   // ── Hik Outbox ────────────────────────────────────────────────────────
 
   @override

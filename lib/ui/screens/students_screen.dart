@@ -270,6 +270,27 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     return trimmed.isEmpty ? null : trimmed;
   }
 
+  Future<void> _retryCardSync(Student student) async {
+    final db = ref.read(databaseProvider);
+    final runtime = ref.read(sijinakRuntimeProvider);
+    await db.requeueDeadCardOutbox(student.userId);
+    await db.accelerateHikOutbox(student.userId);
+    await runtime.tickCardOutbox();
+    await runtime.tickHikOutbox();
+    await _loadStudents();
+  }
+
+  Future<void> _retryAllFailedCards() async {
+    final db = ref.read(databaseProvider);
+    final runtime = ref.read(sijinakRuntimeProvider);
+    final count = await db.requeueAllDeadCardOutbox();
+    await db.accelerateAllHikOutbox();
+    await runtime.tickCardOutbox();
+    await runtime.tickHikOutbox();
+    await _loadStudents();
+    if (count > 0) _showSnack('$count kartu gagal diantrekan ulang');
+  }
+
   /// Looks up the scanned card in local Drift. If a *different* student
   /// already owns it, prompts the admin to either reassign (BE will move the
   /// card) or cancel. Returns true if the caller should proceed.
@@ -670,6 +691,18 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  if (_students.any((s) => s.cardSyncStatus == 'failed')) ...[
+                    OutlinedButton.icon(
+                      onPressed: _retryAllFailedCards,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Retry'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: colors.error,
+                        side: BorderSide(color: colors.error),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   OutlinedButton.icon(
                     onPressed: _runHikReconcile,
                     icon: const Icon(Icons.dvr_outlined, size: 18),
@@ -800,7 +833,8 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                             subtitle: Text(
                               [
                                 if (s.nisn != null) 'NISN: ${s.nisn}',
-                                if (s.kelas != null) s.kelas,
+                                if (s.kelas != null) s.kelas!,
+                                if (s.noTelpWali != null) 'Wali: ${s.noTelpWali}',
                               ].join(' · '),
                               style: TextStyle(
                                   color: colors.onSurfaceVariant,
@@ -811,6 +845,16 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       _CardSyncDot(status: s.cardSyncStatus),
+                                      if (s.cardSyncStatus == 'failed') ...[
+                                        const SizedBox(width: 2),
+                                        IconButton(
+                                          icon: const Icon(Icons.refresh, size: 16),
+                                          tooltip: 'Coba lagi',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () => _retryCardSync(s),
+                                        ),
+                                      ],
                                       const SizedBox(width: 6),
                                       Chip(
                                         label: Text(

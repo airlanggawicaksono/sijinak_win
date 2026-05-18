@@ -60,7 +60,7 @@ class AppConfig {
     this.hikvisionIp = '192.168.40.181',
     this.hikvisionUser = 'admin',
     this.hikvisionPassword = '',
-    this.hikvisionMac = '4c:24:ce:99:a0:aa',
+    this.hikvisionMac = '4C:24:CE:99:A0:AA',
     this.serverUrl = '',
     this.apiKey = '',
     this.wablasBaseUrl = '',
