@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/app_config.dart';
@@ -54,6 +56,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _wablasTestResult;
   bool? _wablasTestSuccess;
 
+  // Auto-save: debounce edits + flush on dispose so the user can't lose
+  // changes by switching tabs without hitting a button.
+  static const _autoSaveDebounce = Duration(milliseconds: 800);
+  Timer? _autoSaveTimer;
+  ConfigNotifier? _configNotifier;
+  bool _autoSaveListenersAttached = false;
+  bool _suppressAutoSave = false;
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +81,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = null;
+    // Best-effort final flush. We can't await this — the widget is going
+    // away — but config.save() writes to disk fast and is fire-and-forget
+    // safe (no UI state to update on completion).
+    if (_fieldsPopulated && _configNotifier != null) {
+      unawaited(_persistConfig(notifier: _configNotifier!));
+    }
     _hikIpCtrl.dispose();
     _hikUserCtrl.dispose();
     _hikPassCtrl.dispose();
@@ -84,7 +102,57 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.dispose();
   }
 
+  void _attachAutoSaveListeners() {
+    if (_autoSaveListenersAttached) return;
+    for (final ctrl in [
+      _hikIpCtrl,
+      _hikUserCtrl,
+      _hikPassCtrl,
+      _hikMacCtrl,
+      _serverUrlCtrl,
+      _apiKeyCtrl,
+      _wablasBaseUrlCtrl,
+      _wablasApiKeyCtrl,
+      _wablasSecKeyCtrl,
+      _thermalPrinterCtrl,
+    ]) {
+      ctrl.addListener(_scheduleAutoSave);
+    }
+    _autoSaveListenersAttached = true;
+  }
+
+  void _scheduleAutoSave() {
+    if (_suppressAutoSave) return;
+    if (!_fieldsPopulated) return;
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(_autoSaveDebounce, () {
+      final notifier = _configNotifier;
+      if (notifier == null) return;
+      unawaited(_persistConfig(notifier: notifier));
+    });
+  }
+
+  Future<void> _persistConfig({required ConfigNotifier notifier}) async {
+    final config = AppConfig(
+      hikvisionIp: _hikIpCtrl.text.trim(),
+      hikvisionUser: _hikUserCtrl.text.trim(),
+      hikvisionPassword: _hikPassCtrl.text,
+      hikvisionMac: _hikMacCtrl.text.trim(),
+      serverUrl: _serverUrlCtrl.text.trim(),
+      apiKey: _apiKeyCtrl.text.trim(),
+      wablasBaseUrl: _wablasBaseUrlCtrl.text.trim(),
+      wablasApiKey: _wablasApiKeyCtrl.text.trim(),
+      wablasSecKey: _wablasSecKeyCtrl.text.trim(),
+      thermalPrinterKey: _thermalPrinterKey,
+      thermalPrinterName: _thermalPrinterCtrl.text.trim(),
+    );
+    await notifier.updateConfig(config);
+  }
+
   void _populateFields(AppConfig config) {
+    // Guard so the initial population doesn't immediately schedule an
+    // auto-save against the (unchanged) values we just loaded.
+    _suppressAutoSave = true;
     _hikIpCtrl.text = config.hikvisionIp;
     _hikUserCtrl.text = config.hikvisionUser;
     _hikPassCtrl.text = config.hikvisionPassword;
@@ -97,6 +165,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _thermalPrinterCtrl.text = config.thermalPrinterName;
     _thermalPrinterKey = config.thermalPrinterKey;
     _fieldsPopulated = true;
+    _suppressAutoSave = false;
+    _attachAutoSaveListeners();
   }
 
   void _clearHikTestState() {
@@ -418,6 +488,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _thermalPrinterKey = selected.key;
         _thermalPrinterCtrl.text = selected.name;
       });
+      // Printer pick is button-driven, not typed — listener on
+      // _thermalPrinterCtrl already fires for the name change, but kick the
+      // debounce explicitly so the key field (not a controller) also persists.
+      _scheduleAutoSave();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -427,32 +501,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (mounted) {
         setState(() => _scanningThermal = false);
       }
-    }
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    final config = AppConfig(
-      hikvisionIp: _hikIpCtrl.text.trim(),
-      hikvisionUser: _hikUserCtrl.text.trim(),
-      hikvisionPassword: _hikPassCtrl.text,
-      hikvisionMac: _hikMacCtrl.text.trim(),
-      serverUrl: _serverUrlCtrl.text.trim(),
-      apiKey: _apiKeyCtrl.text.trim(),
-      wablasBaseUrl: _wablasBaseUrlCtrl.text.trim(),
-      wablasApiKey: _wablasApiKeyCtrl.text.trim(),
-      wablasSecKey: _wablasSecKeyCtrl.text.trim(),
-      thermalPrinterKey: _thermalPrinterKey,
-      thermalPrinterName: _thermalPrinterCtrl.text.trim(),
-    );
-
-    await ref.read(configProvider.notifier).updateConfig(config);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Settings saved')),
-      );
     }
   }
 
@@ -536,6 +584,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final configAsync = ref.watch(configProvider);
+    // Cache the notifier so dispose() can still flush after the widget loses
+    // access to `ref`.
+    _configNotifier ??= ref.read(configProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -882,12 +933,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                   const SizedBox(height: 32),
 
-                  SizedBox(
+                  Container(
                     width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _save,
-                      icon: const Icon(Icons.save),
-                      label: const Text('Save Settings'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.auto_awesome,
+                          size: 18,
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Auto-save aktif — perubahan disimpan otomatis '
+                            'setelah ${_autoSaveDebounce.inMilliseconds}ms '
+                            'idle, dan saat keluar halaman ini.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

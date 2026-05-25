@@ -38,13 +38,30 @@ class _BulkCardAssignDialogState extends ConsumerState<BulkCardAssignDialog> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final hikReady = ref.watch(hikvisionReadyProvider);
 
     if (!_started) {
+      final blocker = !hikReady
+          ? 'Hikvision offline — import diblokir agar BE & device tidak melenceng.'
+          : null;
       return AlertDialog(
         title: const Text('Import Kartu CSV'),
-        content: Text(
-          'Ditemukan ${widget.rows.length} baris data.\n'
-          'Lanjutkan assign kartu via server?',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Ditemukan ${widget.rows.length} baris data.\n'
+              'Lanjutkan assign kartu via server?',
+            ),
+            if (blocker != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                blocker,
+                style: TextStyle(color: colors.error, fontSize: 12),
+              ),
+            ],
+          ],
         ),
         actions: [
           TextButton(
@@ -52,7 +69,7 @@ class _BulkCardAssignDialogState extends ConsumerState<BulkCardAssignDialog> {
             child: const Text('Batal'),
           ),
           FilledButton(
-            onPressed: _start,
+            onPressed: hikReady ? _start : null,
             child: const Text('Mulai'),
           ),
         ],

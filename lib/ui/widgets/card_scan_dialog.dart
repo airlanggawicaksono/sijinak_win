@@ -170,10 +170,17 @@ class _CardScanDialogState extends ConsumerState<CardScanDialog> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 16),
+                  // Manual entry only allowed while the reader is online — a
+                  // typed RFID with a dead device lands in BE without ever
+                  // reaching the hardware, causing a silent BE/Hik divergence.
                   TextButton.icon(
-                    onPressed: _switchToManual,
+                    onPressed: _connected ? _switchToManual : null,
                     icon: const Icon(Icons.keyboard, size: 18),
-                    label: const Text('Input manual'),
+                    label: Text(
+                      _connected
+                          ? 'Input manual'
+                          : 'Input manual (reader offline)',
+                    ),
                   ),
                 ],
               ),

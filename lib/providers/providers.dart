@@ -352,6 +352,7 @@ class SijinakRuntimeController {
   DesktopEventBus? _bus;
   CardOutboxWorker? _cardOutboxWorker;
   HikSyncWorker? _hikSyncWorker;
+  StreamSubscription<AlertStreamStatus>? _hikStatusSub;
   String? _activeFingerprint;
 
   SijinakRuntimeController(this.ref);
@@ -399,6 +400,22 @@ class SijinakRuntimeController {
     await cardOutboxWorker.start();
     await hikSyncWorker.start();
     await bus.start();
+
+    _hikStatusSub = _subscribeHikReconnect();
+  }
+
+  /// Drains the HikOutbox the instant the device flips back to `connected`.
+  /// Without this, queued rows wait out their exponential backoff (up to 5min)
+  /// even though the device is reachable again.
+  StreamSubscription<AlertStreamStatus> _subscribeHikReconnect() {
+    final hikService = ref.read(hikvisionServiceProvider);
+    return hikService.status.listen((status) {
+      if (status != AlertStreamStatus.connected) return;
+      final hikWorker = _hikSyncWorker;
+      final cardWorker = _cardOutboxWorker;
+      if (hikWorker != null) unawaited(hikWorker.tick());
+      if (cardWorker != null) unawaited(cardWorker.tick());
+    });
   }
 
   Future<void> tickNow() async {
@@ -451,11 +468,13 @@ class SijinakRuntimeController {
   }
 
   Future<void> _shutdown() async {
+    await _hikStatusSub?.cancel();
     await _worker?.stop();
     await _cardOutboxWorker?.stop();
     await _hikSyncWorker?.stop();
     await _bus?.close();
     _settingsStore?.dispose();
+    _hikStatusSub = null;
     _worker = null;
     _cardOutboxWorker = null;
     _hikSyncWorker = null;

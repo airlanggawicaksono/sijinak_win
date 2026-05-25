@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as xls;
 import 'package:path/path.dart' as p;
+import '../../config/app_config.dart';
 import '../../data/local/database.dart';
 import '../../data/remote/api_client.dart';
 import '../../providers/providers.dart';
 import '../../services/app_pubsub.dart';
+import '../../services/hikvision_service.dart';
 import '../../services/server_service.dart';
 import '../../services/hik_outbox/hik_reconcile_service.dart';
 import '../widgets/card_scan_dialog.dart';
@@ -128,7 +130,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   }
 
   Future<void> _deleteCard(Student student) async {
-    if (!await _ensureServerReady()) return;
+    if (!await _ensureReady()) return;
     final config = ref.read(configProvider).asData?.value;
     if (config == null) return;
     if (!mounted) return;
@@ -162,7 +164,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   }
 
   Future<void> _replaceCard(Student student) async {
-    if (!await _ensureServerReady()) return;
+    if (!await _ensureReady()) return;
     final config = ref.read(configProvider).asData?.value;
     if (config == null) return;
     if (!mounted) return;
@@ -209,7 +211,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   /// Card assign — BE first, sijinak DeviceJob worker pushes to Hikvision.
   /// Only callable when student.rfidNumber == null (button hidden otherwise).
   Future<void> _assignCard(Student student) async {
-    if (!await _ensureServerReady()) return;
+    if (!await _ensureReady()) return;
     final config = ref.read(configProvider).asData?.value;
     if (config == null) return;
     if (!mounted) return;
@@ -271,6 +273,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   }
 
   Future<void> _retryCardSync(Student student) async {
+    if (!await _ensureReady()) return;
     final db = ref.read(databaseProvider);
     final runtime = ref.read(sijinakRuntimeProvider);
     await db.requeueDeadCardOutbox(student.userId);
@@ -281,6 +284,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   }
 
   Future<void> _retryAllFailedCards() async {
+    if (!await _ensureReady()) return;
     final db = ref.read(databaseProvider);
     final runtime = ref.read(sijinakRuntimeProvider);
     final count = await db.requeueAllDeadCardOutbox();
@@ -349,6 +353,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   /// Pure side-effect: device converges toward local DB state. Never the
   /// other way around.
   Future<void> _runHikReconcile() async {
+    if (!await _ensureReady()) return;
     final service = ref.read(hikReconcileServiceProvider);
     if (service == null) {
       _showSnack('Hikvision belum dikonfigurasi di Settings');
@@ -402,14 +407,14 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   }
 
   Future<void> _importCardsCsv() async {
-    if (!await _ensureServerReady()) return;
+    if (!await _ensureReady()) return;
     final config = ref.read(configProvider).asData?.value;
     if (config == null) return;
 
     final proceed = await _showImportInstructionDialog();
     if (proceed != true || !mounted) return;
 
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['csv', 'xlsx'],
       dialogTitle: 'Pilih file CSV/XLSX (header: nis, rfid_number)',
@@ -593,6 +598,17 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  String _blockReason(bool hikReady) {
+    if (!_backendReady && !hikReady) return 'Server & Hikvision offline';
+    if (!_backendReady) return 'Server offline';
+    if (!hikReady) return 'Hikvision offline';
+    return '';
+  }
+
+  void _showBlockedSnack(String reason) {
+    _showSnack('Tidak bisa assign kartu — $reason');
+  }
+
   Future<void> _probeBackendReady({bool force = false}) async {
     final now = DateTime.now();
     if (!force && _lastBackendProbeAt != null) {
@@ -615,24 +631,45 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     }
   }
 
-  // Only requires server — Hikvision is optional for card assign.
-  Future<bool> _ensureServerReady() async {
+  /// Both BE *and* Hikvision must answer right now before any card mutation
+  /// proceeds. Skipping the Hik check creates a BE/device split where the
+  /// admin assigns a card the reader will never recognise.
+  Future<bool> _ensureReady() async {
     final config = ref.read(configProvider).asData?.value;
     if (config == null || !config.isServerConfigured) {
       _showSnack('Konfigurasi server belum lengkap');
       return false;
     }
-    final result =
+    if (!config.isHikvisionConfigured) {
+      _showSnack('Konfigurasi Hikvision belum lengkap');
+      return false;
+    }
+    final serverResult =
         await ServerService.testConnection(config.serverUrl, config.apiKey);
     if (!mounted) return false;
-    if (_backendReady != result.success) {
-      setState(() => _backendReady = result.success);
+    if (_backendReady != serverResult.success) {
+      setState(() => _backendReady = serverResult.success);
     }
-    if (!result.success) {
-      _showSnack('Tidak dapat terhubung ke server');
+    if (!serverResult.success) {
+      _showSnack('Tidak dapat terhubung ke server — assign kartu ditunda');
+      return false;
+    }
+    final hikOk = await _probeHikvision(config);
+    if (!mounted) return false;
+    if (!hikOk) {
+      _showSnack('Hikvision tidak terjangkau — assign kartu ditunda');
       return false;
     }
     return true;
+  }
+
+  Future<bool> _probeHikvision(AppConfig config) async {
+    try {
+      await HikvisionService.testConnection(config);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   @override
@@ -640,6 +677,9 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final syncState = ref.watch(studentSyncProvider);
+    final hikReady = ref.watch(hikvisionReadyProvider);
+    final canMutate = _backendReady && hikReady;
+    final blockReason = _blockReason(hikReady);
 
     return Column(
       children: [
@@ -671,48 +711,50 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                         ?.copyWith(color: colors.outline),
                   ),
                   const SizedBox(width: 8),
-                  // Server status badge
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: (_backendReady ? Colors.green : Colors.orange)
-                          .withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      _backendReady ? 'Server OK' : 'Server OFF',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: _backendReady
-                            ? Colors.green.shade700
-                            : Colors.orange.shade700,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                  _StatusBadge(
+                    label: _backendReady ? 'Server OK' : 'Server OFF',
+                    ok: _backendReady,
+                  ),
+                  const SizedBox(width: 6),
+                  _StatusBadge(
+                    label: hikReady ? 'Hik OK' : 'Hik OFF',
+                    ok: hikReady,
                   ),
                   const SizedBox(width: 8),
                   if (_students.any((s) => s.cardSyncStatus == 'failed')) ...[
-                    OutlinedButton.icon(
-                      onPressed: _retryAllFailedCards,
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text('Retry'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: colors.error,
-                        side: BorderSide(color: colors.error),
+                    Tooltip(
+                      message: canMutate
+                          ? 'Coba lagi semua kartu gagal'
+                          : blockReason,
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            canMutate ? _retryAllFailedCards : null,
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('Retry'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: colors.error,
+                          side: BorderSide(color: colors.error),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                   ],
-                  OutlinedButton.icon(
-                    onPressed: _runHikReconcile,
-                    icon: const Icon(Icons.dvr_outlined, size: 18),
-                    label: const Text('Sync ke Hik'),
+                  Tooltip(
+                    message: canMutate ? 'Sinkron device ke local' : blockReason,
+                    child: OutlinedButton.icon(
+                      onPressed: canMutate ? _runHikReconcile : null,
+                      icon: const Icon(Icons.dvr_outlined, size: 18),
+                      label: const Text('Sync ke Hik'),
+                    ),
                   ),
                   const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _importCardsCsv,
-                    icon: const Icon(Icons.file_upload_outlined, size: 18),
-                    label: const Text('Import kartu'),
+                  Tooltip(
+                    message: canMutate ? 'Import kartu massal' : blockReason,
+                    child: OutlinedButton.icon(
+                      onPressed: canMutate ? _importCardsCsv : null,
+                      icon: const Icon(Icons.file_upload_outlined, size: 18),
+                      label: const Text('Import kartu'),
+                    ),
                   ),
                   const SizedBox(width: 4),
                   syncState.when(
@@ -849,10 +891,14 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                                         const SizedBox(width: 2),
                                         IconButton(
                                           icon: const Icon(Icons.refresh, size: 16),
-                                          tooltip: 'Coba lagi',
+                                          tooltip: canMutate
+                                              ? 'Coba lagi'
+                                              : blockReason,
                                           padding: EdgeInsets.zero,
                                           constraints: const BoxConstraints(),
-                                          onPressed: () => _retryCardSync(s),
+                                          onPressed: canMutate
+                                              ? () => _retryCardSync(s)
+                                              : null,
                                         ),
                                       ],
                                       const SizedBox(width: 6),
@@ -873,15 +919,25 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                                         visualDensity: VisualDensity.compact,
                                         padding: EdgeInsets.zero,
                                         deleteIcon: const Icon(Icons.more_horiz, size: 14),
-                                        onDeleted: () => _showCardOptions(s),
+                                        onDeleted: canMutate
+                                            ? () => _showCardOptions(s)
+                                            : () => _showBlockedSnack(blockReason),
                                       ),
                                     ],
                                   )
                                 : IconButton(
-                                    icon: Icon(Icons.add_card,
-                                        color: colors.primary),
-                                    tooltip: 'Daftarkan kartu RFID',
-                                    onPressed: () => _assignCard(s),
+                                    icon: Icon(
+                                      Icons.add_card,
+                                      color: canMutate
+                                          ? colors.primary
+                                          : colors.outline,
+                                    ),
+                                    tooltip: canMutate
+                                        ? 'Daftarkan kartu RFID'
+                                        : blockReason,
+                                    onPressed: canMutate
+                                        ? () => _assignCard(s)
+                                        : () => _showBlockedSnack(blockReason),
                                   ),
                           ),
                         );
@@ -893,6 +949,32 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   }
 }
 
+
+class _StatusBadge extends StatelessWidget {
+  final String label;
+  final bool ok;
+  const _StatusBadge({required this.label, required this.ok});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = ok ? Colors.green : Colors.orange;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: ok ? Colors.green.shade700 : Colors.orange.shade700,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
 
 /// 8px colored dot reflecting [Student.cardSyncStatus]:
 ///   green  = synced (BE confirmed)
