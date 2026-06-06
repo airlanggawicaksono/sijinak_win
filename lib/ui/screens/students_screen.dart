@@ -252,16 +252,17 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
 
     try {
       final db = ref.read(databaseProvider);
-      await db.enqueueCardWrite(
+      await db.enqueueCardChange(
         userId: student.userId,
         oldRfid: student.rfidNumber,
         newRfid: _normalizeRfid(newRfidNumber),
       );
       await _mirrorLocalCard(student.userId, newRfidNumber);
-      await db.setStudentCardSyncStatus(student.userId, 'pending');
       _showSnack(successMessage);
       await _loadStudents();
-      unawaited(ref.read(sijinakRuntimeProvider).tickCardOutbox());
+      final runtime = ref.read(sijinakRuntimeProvider);
+      unawaited(runtime.tickCardOutbox());
+      unawaited(runtime.tickHikOutbox());
     } catch (e) {
       _showSnack('$failurePrefix: $e');
     }
@@ -599,10 +600,8 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   }
 
   String _blockReason(bool hikReady) {
-    if (!_backendReady && !hikReady) return 'Server & Hikvision offline';
-    if (!_backendReady) return 'Server offline';
-    if (!hikReady) return 'Hikvision offline';
-    return '';
+    // Only the device gates mutation now; the server badge is informational.
+    return hikReady ? '' : 'Hikvision offline';
   }
 
   void _showBlockedSnack(String reason) {
@@ -631,9 +630,12 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     }
   }
 
-  /// Both BE *and* Hikvision must answer right now before any card mutation
-  /// proceeds. Skipping the Hik check creates a BE/device split where the
-  /// admin assigns a card the reader will never recognise.
+  /// Gate before any card mutation. The reader (Hikvision) MUST answer — assign
+  /// and replace read a live tap, and a card the reader never gets means a
+  /// student who can't tap in. The server is only *advisory*: edits are queued
+  /// locally and pushed to the device immediately, with the server sync
+  /// draining whenever it comes back (cardSyncStatus='pending' in the meantime).
+  /// So a server outage warns but does NOT block.
   Future<bool> _ensureReady() async {
     final config = ref.read(configProvider).asData?.value;
     if (config == null || !config.isServerConfigured) {
@@ -644,6 +646,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
       _showSnack('Konfigurasi Hikvision belum lengkap');
       return false;
     }
+    // Probe the server to keep the UI badge fresh, but never block on it.
     final serverResult =
         await ServerService.testConnection(config.serverUrl, config.apiKey);
     if (!mounted) return false;
@@ -651,13 +654,15 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
       setState(() => _backendReady = serverResult.success);
     }
     if (!serverResult.success) {
-      _showSnack('Tidak dapat terhubung ke server — assign kartu ditunda');
-      return false;
+      _showSnack(
+        'Server offline — perubahan kartu disimpan & disinkronkan saat server kembali',
+      );
     }
+    // Device reachability is the real gate.
     final hikOk = await _probeHikvision(config);
     if (!mounted) return false;
     if (!hikOk) {
-      _showSnack('Hikvision tidak terjangkau — assign kartu ditunda');
+      _showSnack('Hikvision tidak terjangkau — kelola kartu ditunda');
       return false;
     }
     return true;
@@ -678,7 +683,10 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     final colors = theme.colorScheme;
     final syncState = ref.watch(studentSyncProvider);
     final hikReady = ref.watch(hikvisionReadyProvider);
-    final canMutate = _backendReady && hikReady;
+    // Card mutation is gated on the DEVICE only. The server is advisory: edits
+    // queue locally (cardSyncStatus='pending') and sync when it returns, so a
+    // server outage must not disable the controls.
+    final canMutate = hikReady;
     final blockReason = _blockReason(hikReady);
 
     return Column(

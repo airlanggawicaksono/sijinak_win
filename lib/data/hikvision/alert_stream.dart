@@ -10,16 +10,26 @@ class AlertStream {
   final HikvisionDevicePort client;
   final Duration retryDelay;
 
+  /// Max gap between bytes on a *healthy* stream. The device emits heartbeats
+  /// every few seconds, so silence past this window means the socket died
+  /// silently (switch/AP reboot, device power-cycle without a TCP RST) and the
+  /// Dart stream never fired onError/onDone. The watchdog forces a reconnect so
+  /// the reported status stays truthful instead of stuck on "connected".
+  final Duration heartbeatTimeout;
+
   final _controller = StreamController<HikEvent>.broadcast();
   final _statusController = StreamController<AlertStreamStatus>.broadcast();
 
   HttpClient? _httpClient;
   StreamSubscription? _subscription;
+  Timer? _watchdog;
   bool _running = false;
+  bool _reconnecting = false;
 
   AlertStream({
     required this.client,
     this.retryDelay = const Duration(seconds: 3),
+    this.heartbeatTimeout = const Duration(seconds: 60),
   });
 
   Stream<HikEvent> get events => _controller.stream;
@@ -39,6 +49,9 @@ class AlertStream {
 
   void stop() {
     _running = false;
+    _reconnecting = false;
+    _watchdog?.cancel();
+    _watchdog = null;
     _subscription?.cancel();
     _subscription = null;
     _httpClient?.close(force: true);
@@ -54,6 +67,9 @@ class AlertStream {
 
   Future<void> _connect() async {
     if (!_running) return;
+    // A connect attempt is now underway; clear the coalescing latch so that if
+    // THIS attempt fails, its onError/catch can schedule the next one.
+    _reconnecting = false;
     _statusController.add(AlertStreamStatus.connecting);
 
     try {
@@ -66,11 +82,13 @@ class AlertStream {
       final boundary = _extractBoundary(contentType);
 
       _statusController.add(AlertStreamStatus.connected);
+      _petWatchdog();
 
       final buffer = StringBuffer();
 
       _subscription = response.transform(utf8.decoder).listen(
         (chunk) {
+          _petWatchdog();
           buffer.write(chunk);
 
           // Try to extract complete events from buffer
@@ -111,13 +129,36 @@ class AlertStream {
     }
   }
 
+  /// Reset the no-bytes timer. Fired on connect and on every chunk; if it ever
+  /// elapses the stream is silently dead and we force a reconnect.
+  void _petWatchdog() {
+    _watchdog?.cancel();
+    _watchdog = Timer(heartbeatTimeout, () {
+      if (!_running) return;
+      _statusController.add(AlertStreamStatus.disconnected);
+      _scheduleReconnect();
+    });
+  }
+
   void _scheduleReconnect() {
     if (!_running) return;
+    // Coalesce the multiple triggers (onError + onDone + watchdog) that can
+    // race for the same dead connection so we open exactly one new stream.
+    if (_reconnecting) return;
+    _reconnecting = true;
+    _watchdog?.cancel();
+    _watchdog = null;
     _subscription?.cancel();
     _subscription = null;
     _httpClient?.close(force: true);
     _httpClient = null;
-    Future.delayed(retryDelay, _connect);
+    Future.delayed(retryDelay, () {
+      if (!_running) {
+        _reconnecting = false;
+        return;
+      }
+      _connect();
+    });
   }
 
   String? _extractBoundary(String contentType) {

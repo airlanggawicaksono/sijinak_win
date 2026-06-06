@@ -8,8 +8,8 @@ import '../../data/local/database.dart';
 
 /// Drains pending sijinak → Hikvision device writes.
 ///
-/// Unlike CardOutboxWorker (BE-bound, has a dead-letter limit because BE may
-/// legitimately reject a write), this worker retries **forever** — Hik is the
+/// Unlike CardOutboxWorker (BE-bound, dead-letters only on a 4xx reject — BE
+/// legitimately refusing a write), this worker retries **forever** — Hik is the
 /// local LAN device and there's no scenario where giving up is correct.
 /// Stuck rows surface in the UI; the operator can power-cycle the device.
 class HikSyncWorker {

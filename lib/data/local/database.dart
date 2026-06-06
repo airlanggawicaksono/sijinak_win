@@ -45,6 +45,17 @@ abstract class StudentStorePort {
     String? newRfid,
   });
   Future<void> setStudentCardSyncStatus(String userId, String status);
+
+  /// Enqueue a card mutation into BOTH outboxes at once, decoupled:
+  ///   - CardOutbox → server (BE confirms; may revert on a terminal reject)
+  ///   - HikOutbox  → local device (drains independently of the server)
+  /// So the card reaches the LAN device even while the server is unreachable.
+  /// Sets cardSyncStatus='pending' (the server-side view).
+  Future<void> enqueueCardChange({
+    required String userId,
+    required String? oldRfid,
+    required String? newRfid,
+  });
 }
 
 abstract class AttendanceStorePort {
@@ -491,6 +502,41 @@ class AppDatabase extends _$AppDatabase
   }
 
   @override
+  Future<void> enqueueCardChange({
+    required String userId,
+    required String? oldRfid,
+    required String? newRfid,
+  }) async {
+    // Server-bound queue.
+    await enqueueCardWrite(userId: userId, oldRfid: oldRfid, newRfid: newRfid);
+    // Device-bound queue — fired at edit time, NOT gated on BE ack, so the
+    // device is updated even with the server down.
+    await _enqueueHikForCard(userId: userId, oldRfid: oldRfid, newRfid: newRfid);
+    await setStudentCardSyncStatus(userId, 'pending');
+  }
+
+  /// Mirror a card change to the device (HikOutbox): upsert when a card is set,
+  /// delete when cleared. enqueueHikWrite no-op-filters dead transitions. Shared
+  /// by the edit path and the dead-row requeue path (which must re-apply the
+  /// device side too, since a 4xx revert had compensated it back to oldRfid).
+  Future<void> _enqueueHikForCard({
+    required String userId,
+    required String? oldRfid,
+    required String? newRfid,
+  }) async {
+    final hasNew = newRfid != null && newRfid.isNotEmpty;
+    final student = await getStudentByUserId(userId);
+    await enqueueHikWrite(
+      userId: userId,
+      employeeNo: hikvisionEmployeeNoFor(userId),
+      operation: hasNew ? HikOpType.upsertCard : HikOpType.deleteCard,
+      name: student?.nama,
+      oldRfid: oldRfid,
+      newRfid: newRfid,
+    );
+  }
+
+  @override
   Future<List<CardOutboxData>> dueCardOutboxRows({
     required int nowSec,
     int limit = 20,
@@ -595,6 +641,13 @@ class AppDatabase extends _$AppDatabase
     );
     await revertStudentCard(userId, row.newRfid);
     await setStudentCardSyncStatus(userId, 'pending');
+    // Re-apply the device side: the 4xx revert had compensated the device back
+    // to oldRfid, so the retry must re-push newRfid or device/server diverge.
+    await _enqueueHikForCard(
+      userId: userId,
+      oldRfid: row.oldRfid,
+      newRfid: row.newRfid,
+    );
   }
 
   /// Accelerate all queued HikOutbox rows for [userId] — set nextAttemptAt=now
@@ -629,6 +682,11 @@ class AppDatabase extends _$AppDatabase
       for (final entry in latestByUser.entries) {
         await revertStudentCard(entry.key, entry.value.newRfid);
         await setStudentCardSyncStatus(entry.key, 'pending');
+        await _enqueueHikForCard(
+          userId: entry.key,
+          oldRfid: entry.value.oldRfid,
+          newRfid: entry.value.newRfid,
+        );
       }
     });
     return latestByUser.length;

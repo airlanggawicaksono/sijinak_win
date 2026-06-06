@@ -155,13 +155,12 @@ class StudentService {
     }
 
     try {
-      await db.enqueueCardWrite(
+      await db.enqueueCardChange(
         userId: student.userId,
         oldRfid: student.rfidNumber,
         newRfid: rfidNumber,
       );
       await db.assignCardToStudent(student.userId, rfidNumber);
-      await db.setStudentCardSyncStatus(student.userId, 'pending');
       return const _BulkAssignOutcome(successDelta: 1);
     } catch (e) {
       return _BulkAssignOutcome(failedDelta: 1, error: 'NISN $nisn: $e');

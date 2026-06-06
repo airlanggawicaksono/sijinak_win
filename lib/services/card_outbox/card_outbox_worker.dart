@@ -11,10 +11,6 @@ import '../../data/remote/api_client.dart';
 ///
 /// Lifecycle owned by [SijinakRuntimeController]. One worker per runtime.
 class CardOutboxWorker {
-  /// Max attempts before we give up and revert local state to the snapshot
-  /// taken at enqueue time.
-  static const int maxAttempts = 8;
-
   /// Tick cadence — chosen short enough that retries feel responsive without
   /// hammering BE during sustained outages (exp backoff still gates per-row).
   static const Duration tickInterval = Duration(seconds: 5);
@@ -85,43 +81,28 @@ class CardOutboxWorker {
   Future<void> _markSuccess(CardOutboxData row) async {
     await db.markCardOutboxDone(row.id);
     await db.setStudentCardSyncStatus(row.userId, 'synced');
-    await _enqueueHikSideEffect(row);
+    // Device write is NOT created here anymore — it was enqueued at edit time,
+    // in parallel with this server-bound row (see db.enqueueCardChange). That
+    // decoupling is what lets the LAN device update while the server is down.
     final cb = onBackendAck;
     if (cb != null) await cb();
   }
 
-  /// BE confirmed the canonical card change. Mirror that change to the local
-  /// Hik device via the HikOutbox. Worker filters out no-op transitions
-  /// (null → null) inside `enqueueHikWrite`.
-  Future<void> _enqueueHikSideEffect(CardOutboxData row) async {
-    final newRfid = row.newRfid;
-    final oldRfid = row.oldRfid;
-    final hasNew = newRfid != null && newRfid.isNotEmpty;
-    final hasOld = oldRfid != null && oldRfid.isNotEmpty;
-
-    final operation = hasNew ? HikOpType.upsertCard : HikOpType.deleteCard;
-    if (operation == HikOpType.deleteCard && !hasOld) return;
-
-    final student = await db.getStudentByUserId(row.userId);
-    await db.enqueueHikWrite(
-      userId: row.userId,
-      employeeNo: hikvisionEmployeeNoFor(row.userId),
-      operation: operation,
-      name: student?.nama,
-      oldRfid: oldRfid,
-      newRfid: newRfid,
-    );
-  }
-
   Future<void> _handleApiError(CardOutboxData row, ApiException e) async {
     if (_isTerminalStatus(e.statusCode)) {
+      // BE actively rejected (4xx). This is the only path that gives up —
+      // server is reachable and says no, so revert local + undo on device.
       await _revertAndDie(row, 'BE ${e.statusCode}: ${e.message}');
       return;
     }
+    // 5xx — server reachable but erroring. Don't lose the operator's edit;
+    // keep retrying, stay 'pending'.
     await _scheduleRetry(row, '${e.statusCode}: ${e.message}');
   }
 
   Future<void> _handleTransientError(CardOutboxData row, Object e) async {
+    // Network / timeout — server unreachable. Retry forever, stay 'pending'.
+    // The card already lives on the device; this is just the server catching up.
     await _scheduleRetry(row, e.toString());
   }
 
@@ -133,12 +114,11 @@ class CardOutboxWorker {
     return false;
   }
 
+  /// Transient/5xx backoff. Never dead-letters — a server that is merely
+  /// unreachable must not cost the operator their edit. The row stays 'queued'
+  /// and the student stays 'pending' until the server confirms or 4xx-rejects.
   Future<void> _scheduleRetry(CardOutboxData row, String error) async {
     final nextAttempts = row.attempts + 1;
-    if (nextAttempts >= maxAttempts) {
-      await _revertAndDie(row, 'exhausted retries: $error');
-      return;
-    }
     final delay = _backoffSeconds(nextAttempts);
     await db.bumpCardOutboxRetry(
       id: row.id,
@@ -152,15 +132,53 @@ class CardOutboxWorker {
   Future<void> _revertAndDie(CardOutboxData row, String error) async {
     await db.markCardOutboxDead(row.id, error);
     await db.revertStudentCard(row.userId, row.oldRfid);
-    // No Hik undo needed: Hik writes only fire from _markSuccess, so a
-    // revert path means we never touched the device for this row.
+    // The device already applied this card at edit time (parallel write). BE
+    // rejected it → push a compensating Hik write so the device matches BE.
+    await _enqueueCompensatingHikWrite(row);
     debugPrint(
       '[CardOutboxWorker] reverted ${row.userId} → ${row.oldRfid} ($error)',
     );
   }
 
+  /// Undo, on the device, a card edit that BE rejected. Restores the device to
+  /// the pre-edit state captured in [row].oldRfid.
+  Future<void> _enqueueCompensatingHikWrite(CardOutboxData row) async {
+    final newRfid = row.newRfid;
+    final oldRfid = row.oldRfid;
+    final hasNew = newRfid != null && newRfid.isNotEmpty;
+    final hasOld = oldRfid != null && oldRfid.isNotEmpty;
+    if (!hasNew && !hasOld) return; // nothing ever hit the device
+
+    final employeeNo = hikvisionEmployeeNoFor(row.userId);
+    final student = await db.getStudentByUserId(row.userId);
+
+    if (hasOld) {
+      // Re-bind the old card; upsert drops the rejected new card in the same op.
+      await db.enqueueHikWrite(
+        userId: row.userId,
+        employeeNo: employeeNo,
+        operation: HikOpType.upsertCard,
+        name: student?.nama,
+        oldRfid: newRfid,
+        newRfid: oldRfid,
+      );
+    } else {
+      // Fresh assign rejected — strip the card (and person) off the device.
+      await db.enqueueHikWrite(
+        userId: row.userId,
+        employeeNo: employeeNo,
+        operation: HikOpType.deleteCard,
+        oldRfid: newRfid,
+      );
+    }
+    final cb = onBackendAck;
+    if (cb != null) await cb(); // nudge HikSyncWorker to drain the undo now
+  }
+
   int _backoffSeconds(int attempt) {
-    final raw = 5 * (1 << (attempt - 1));
+    // Clamp the shift: retries are now unbounded, so an unclamped `1 << n`
+    // would overflow 64-bit and yield garbage (negative/zero) backoff.
+    final raw = 5 * (1 << (attempt - 1).clamp(0, 6));
     return raw > 300 ? 300 : raw;
   }
 
