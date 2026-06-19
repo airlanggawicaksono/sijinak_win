@@ -116,6 +116,19 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
           SimpleDialogOption(
             onPressed: () {
               Navigator.pop(ctx);
+              _resyncCardToDevice(student);
+            },
+            child: const ListTile(
+              leading: Icon(Icons.sync),
+              title: Text('Kirim Ulang ke Hikvision'),
+              subtitle: Text('Jika kartu belum masuk ke device',
+                  style: TextStyle(fontSize: 11)),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () {
+              Navigator.pop(ctx);
               _deleteCard(student);
             },
             child: const ListTile(
@@ -158,7 +171,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     await _applyCardChange(
       student: student,
       newRfidNumber: null,
-      successMessage: 'Permintaan hapus kartu diantrekan (server akan konfirmasi)',
+      successMessage: 'Kartu dihapus dari device & server',
       failurePrefix: 'Gagal hapus kartu',
     );
   }
@@ -203,12 +216,12 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     await _applyCardChange(
       student: student,
       newRfidNumber: newCardNo,
-      successMessage: 'Penggantian kartu ke $newCardNo diantrekan',
+      successMessage: 'Kartu diganti ke $newCardNo (terpasang di device)',
       failurePrefix: 'Gagal ganti kartu',
     );
   }
 
-  /// Card assign — BE first, sijinak DeviceJob worker pushes to Hikvision.
+  /// Card assign — enqueues server + device writes via _applyCardChange.
   /// Only callable when student.rfidNumber == null (button hidden otherwise).
   Future<void> _assignCard(Student student) async {
     if (!await _ensureReady()) return;
@@ -228,19 +241,17 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     await _applyCardChange(
       student: student,
       newRfidNumber: rfidNumber,
-      successMessage: 'Kartu $rfidNumber diantrekan untuk ${student.nama}',
+      successMessage: 'Kartu $rfidNumber terpasang untuk ${student.nama}',
       failurePrefix: 'Gagal assign kartu',
     );
   }
 
   /// Single canonical path for any card mutation (assign / replace / remove).
-  /// Calls BE's unified /card endpoint, mirrors the new value into Drift
-  /// optimistically, then nudges the DeviceJob worker so the Hikvision push
-  /// happens immediately instead of waiting for the next poll.
-  /// Optimistic card edit. Writes local Drift + enqueues a CardOutbox row.
-  /// The background CardOutboxWorker drains the row, calling BE. On BE
-  /// rejection or exhausted retries the worker reverts Students.rfidNumber
-  /// back to [student.rfidNumber] — BE remains ground truth.
+  /// Optimistic edit: enqueues a CardOutbox row (server) AND a HikOutbox row
+  /// (device) via [AppDatabase.enqueueCardChange], mirrors the value into Drift,
+  /// then ticks both workers so they drain on this heartbeat. On a BE 4xx
+  /// rejection the CardOutboxWorker reverts Students.rfidNumber to
+  /// [student.rfidNumber] — BE remains ground truth.
   Future<void> _applyCardChange({
     required Student student,
     required String? newRfidNumber,
@@ -249,22 +260,63 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   }) async {
     final config = ref.read(configProvider).asData?.value;
     if (config == null) return;
+    final db = ref.read(databaseProvider);
+    final normalized = _normalizeRfid(newRfidNumber);
 
     try {
-      final db = ref.read(databaseProvider);
-      await db.enqueueCardChange(
+      // Server side ALWAYS queues — the BE needs the internet, which can drop.
+      // CardOutboxWorker drains it whenever the server is reachable again, so
+      // the edit is never lost.
+      await db.enqueueCardWrite(
         userId: student.userId,
         oldRfid: student.rfidNumber,
-        newRfid: _normalizeRfid(newRfidNumber),
+        newRfid: normalized,
       );
+      await db.setStudentCardSyncStatus(student.userId, 'pending');
       await _mirrorLocalCard(student.userId, newRfidNumber);
-      _showSnack(successMessage);
+
+      // Hikvision is on the LAN (internet-independent). Push directly NOW for
+      // instant confirmation; if the device blips, fall back to the retry queue.
+      final pushed = await _pushHikOrQueue(student, normalized, config);
+
+      _showSnack(pushed
+          ? successMessage
+          : 'Belum terkonfirmasi di device — diantrekan, dicoba otomatis');
       await _loadStudents();
-      final runtime = ref.read(sijinakRuntimeProvider);
-      unawaited(runtime.tickCardOutbox());
-      unawaited(runtime.tickHikOutbox());
+      unawaited(ref.read(sijinakRuntimeProvider).tickCardOutbox());
     } catch (e) {
       _showSnack('$failurePrefix: $e');
+    }
+  }
+
+  /// Push the card change straight to the device (LAN). On success mark the
+  /// student device-registered. On a device failure, queue it in HikOutbox so
+  /// the worker auto-retries when the device returns. Returns true if the push
+  /// landed immediately. Internet state is irrelevant here — this is the LAN.
+  Future<bool> _pushHikOrQueue(
+    Student student,
+    String? normalized,
+    AppConfig config,
+  ) async {
+    final db = ref.read(databaseProvider);
+    try {
+      await ref.read(studentServiceProvider).pushCardToDevice(
+            student: student,
+            newRfid: normalized,
+            config: config,
+          );
+      final onDevice = normalized != null && normalized.isNotEmpty;
+      await db.setStudentHikRegistered(student.userId, onDevice);
+      return true;
+    } catch (_) {
+      await db.enqueueHikCardWrite(
+        userId: student.userId,
+        oldRfid: student.rfidNumber,
+        newRfid: normalized,
+      );
+      await db.accelerateHikOutbox(student.userId);
+      unawaited(ref.read(sijinakRuntimeProvider).tickHikOutbox());
+      return false;
     }
   }
 
@@ -282,6 +334,19 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     await runtime.tickCardOutbox();
     await runtime.tickHikOutbox();
     await _loadStudents();
+  }
+
+  /// Device-only re-push: re-enqueue the student's current card into HikOutbox
+  /// and drain immediately. For the case where the server write succeeded
+  /// (green dot) but the card never reached the device.
+  Future<void> _resyncCardToDevice(Student student) async {
+    if (!await _ensureReady()) return;
+    final db = ref.read(databaseProvider);
+    await db.enqueueHikResync(student.userId);
+    await db.accelerateHikOutbox(student.userId);
+    await ref.read(sijinakRuntimeProvider).tickHikOutbox();
+    await _loadStudents();
+    _showSnack('Kartu ${student.rfidNumber} dikirim ulang ke Hikvision');
   }
 
   Future<void> _retryAllFailedCards() async {

@@ -27,8 +27,6 @@ abstract class StudentStorePort {
     required Set<String> serverUserIds,
     Set<String> protectedUserIds,
   });
-  Future<List<Student>> getUnregisteredStudents();
-  Future<void> markHikRegistered(String userId);
   Future<void> assignCardToStudent(String userId, String rfidNumber);
   Future<void> removeCardFromStudent(String userId);
   Future<String> enqueueCardWrite({
@@ -109,6 +107,11 @@ abstract class HikOutboxPort {
     required int nextAttemptAt,
     required String error,
   });
+
+  /// Reflect the outcome of a drained Hik write into Students.hikRegistered so
+  /// the UI chip tells the truth about whether the card actually lives on the
+  /// device (true after a successful upsert, false after a card/person delete).
+  Future<void> setStudentHikRegistered(String userId, bool registered);
 }
 
 abstract class CardOutboxPort {
@@ -379,13 +382,9 @@ class AppDatabase extends _$AppDatabase
   }
 
   @override
-  Future<List<Student>> getUnregisteredStudents() =>
-      (select(students)..where((s) => s.hikRegistered.equals(false))).get();
-
-  @override
-  Future<void> markHikRegistered(String userId) =>
+  Future<void> setStudentHikRegistered(String userId, bool registered) =>
       (update(students)..where((s) => s.userId.equals(userId))).write(
-        const StudentsCompanion(hikRegistered: Value(true)),
+        StudentsCompanion(hikRegistered: Value(registered)),
       );
 
   @override
@@ -514,6 +513,16 @@ class AppDatabase extends _$AppDatabase
     await _enqueueHikForCard(userId: userId, oldRfid: oldRfid, newRfid: newRfid);
     await setStudentCardSyncStatus(userId, 'pending');
   }
+
+  /// Public entry to queue ONLY the device-side write (HikOutbox). Used as the
+  /// fallback when a direct device push fails mid-edit, so the change auto-
+  /// retries when the device returns. Server queue is handled separately.
+  Future<void> enqueueHikCardWrite({
+    required String userId,
+    required String? oldRfid,
+    required String? newRfid,
+  }) =>
+      _enqueueHikForCard(userId: userId, oldRfid: oldRfid, newRfid: newRfid);
 
   /// Mirror a card change to the device (HikOutbox): upsert when a card is set,
   /// delete when cleared. enqueueHikWrite no-op-filters dead transitions. Shared
@@ -647,6 +656,24 @@ class AppDatabase extends _$AppDatabase
       userId: userId,
       oldRfid: row.oldRfid,
       newRfid: row.newRfid,
+    );
+  }
+
+  /// Re-enqueue a device-only push of the student's CURRENT card. Use when a
+  /// HikOutbox row got stuck (or the device was offline at edit time) so the
+  /// card actually lands on the device. Server/CardOutbox state is untouched.
+  /// Returns the new HikOutbox row id, or null if the student has no card.
+  Future<String?> enqueueHikResync(String userId) async {
+    final student = await getStudentByUserId(userId);
+    if (student == null) return null;
+    final rfid = student.rfidNumber;
+    return enqueueHikWrite(
+      userId: userId,
+      employeeNo: hikvisionEmployeeNoFor(userId),
+      operation: HikOpType.upsertCard,
+      name: student.nama,
+      oldRfid: rfid,
+      newRfid: rfid,
     );
   }
 

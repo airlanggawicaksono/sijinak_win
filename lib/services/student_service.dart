@@ -2,7 +2,6 @@ import '../config/app_config.dart';
 import '../data/local/database.dart';
 import '../data/hikvision/isapi_client.dart';
 import '../data/remote/api_client.dart';
-import 'pending_card_cache_service.dart';
 
 /// Per-row progress for bulk CSV/XLSX card assignment.
 class BulkCardAssignProgress {
@@ -43,58 +42,75 @@ class HikvisionCleanupResult {
   });
 }
 
-/// Pure read-side + bulk-import facade. All single-card mutations now go
-/// through the BE unified endpoint (`POST /api/desktop/students/{uid}/card`),
-/// with the Hikvision push handled asynchronously by the DeviceJob worker.
+/// Pure read-side + bulk-import facade. Card mutations are enqueued via
+/// [AppDatabase.enqueueCardChange], which fans out to the CardOutbox (server)
+/// and HikOutbox (device) workers; this class never talks to the device or BE
+/// for single-card edits.
 class StudentService {
   final StudentStorePort db;
   final HikvisionDevicePort Function(AppConfig config) _hikvisionClientFactory;
-  final PendingCardCachePort _pendingCardCache;
 
   StudentService(
     this.db, {
     HikvisionDevicePort Function(AppConfig config)? hikvisionClientFactory,
-    PendingCardCachePort? pendingCardCache,
-  })  : _hikvisionClientFactory = hikvisionClientFactory ??
+  }) : _hikvisionClientFactory = hikvisionClientFactory ??
             ((config) => IsapiClient(
                   baseUrl: config.hikvisionBaseUrl,
                   username: config.hikvisionUser,
                   password: config.hikvisionPassword,
-                )),
-        _pendingCardCache = pendingCardCache ?? PendingCardCacheService();
+                ));
 
   Future<List<Student>> loadStudents() => db.getAllStudents();
 
-  Future<List<Student>> getUnregistered() => db.getUnregisteredStudents();
-
-  /// Drain rows where the NIS was previously unknown locally but a card was
-  /// reserved. When the student appears in the next snapshot, push the card
-  /// through the unified BE endpoint (which queues the Hikvision sync job).
-  Future<int> applyPendingCardAssignments(BackendApiPort api) async {
-    final pending = await _pendingCardCache.listAll();
-    if (pending.isEmpty) return 0;
-
-    int applied = 0;
-    for (final row in pending) {
-      final ok = await _applySinglePending(api, row);
-      if (ok) applied++;
+  /// Direct, synchronous push of one card change to the Hikvision device.
+  /// Hikvision lives on the LAN, so this works even when the internet/BE is
+  /// down. Returns on success; THROWS on device failure so the caller can fall
+  /// back to the HikOutbox retry queue. Mirrors the old (proven) assignCard.
+  Future<void> pushCardToDevice({
+    required Student student,
+    required String? newRfid,
+    required AppConfig config,
+  }) async {
+    final client = _hikvisionClientFactory(config);
+    final hasNew = newRfid != null && newRfid.isNotEmpty;
+    if (!hasNew) {
+      await _pushDeviceRemoval(client, student);
+      return;
     }
-    return applied;
+    await client.upsertPerson(employeeNo: student.userId, name: student.nama);
+    final old = student.rfidNumber;
+    if (old != null && old.isNotEmpty && old != newRfid) {
+      await _bestEffortDeleteCard(client, old);
+    }
+    await client.upsertCard(rfidNumber: newRfid, employeeNo: student.userId);
+
+    // Read-back: confirm the card actually landed (Hikvision can 200 yet not
+    // persist). Throw on miss so the caller falls back to the retry queue.
+    final stored = await client.deviceHasCard(rfidNumber: newRfid);
+    if (!stored) {
+      throw const HikCardNotConfirmedException();
+    }
   }
 
-  Future<bool> _applySinglePending(BackendApiPort api, PendingCardAssignment row) async {
+  Future<void> _pushDeviceRemoval(
+    HikvisionDevicePort client,
+    Student student,
+  ) async {
+    final old = student.rfidNumber;
+    if (old != null && old.isNotEmpty) {
+      await _bestEffortDeleteCard(client, old);
+    }
+    await client.deletePerson(employeeNo: student.userId);
+  }
+
+  Future<void> _bestEffortDeleteCard(
+    HikvisionDevicePort client,
+    String rfid,
+  ) async {
     try {
-      final student = await db.getStudentByNisn(row.nisn);
-      if (student == null) return false;
-      if (student.rfidNumber == row.rfidNumber) {
-        await _pendingCardCache.remove(row.nisn);
-        return false;
-      }
-      await api.setStudentCard(student.userId, row.rfidNumber);
-      await _pendingCardCache.remove(row.nisn);
-      return true;
+      await client.deleteCard(rfidNumber: rfid);
     } catch (_) {
-      return false;
+      // Old card may already be gone on the device; don't fail the whole op.
     }
   }
 
@@ -138,10 +154,9 @@ class StudentService {
 
     final student = await db.getStudentByNisn(nisn);
     if (student == null) {
-      await _pendingCardCache.upsert(nisn, rfidNumber);
       return _BulkAssignOutcome(
         skippedDelta: 1,
-        error: 'NISN $nisn: siswa belum ada di local DB, disimpan ke cache',
+        error: 'NISN $nisn: siswa belum ada di local DB, sinkronkan siswa dulu',
       );
     }
     if (student.rfidNumber == rfidNumber) {
@@ -291,6 +306,17 @@ class StudentService {
       return const _CleanupOutcome();
     }
   }
+}
+
+/// Thrown by [StudentService.pushCardToDevice] when the post-write read-back
+/// can't find the card on the device — the write didn't stick. Signals the
+/// caller to queue a retry rather than report success.
+class HikCardNotConfirmedException implements Exception {
+  const HikCardNotConfirmedException();
+
+  @override
+  String toString() =>
+      'HikCardNotConfirmedException: kartu tidak terkonfirmasi di device';
 }
 
 class _BulkAssignOutcome {

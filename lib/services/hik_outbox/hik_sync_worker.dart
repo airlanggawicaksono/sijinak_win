@@ -61,9 +61,19 @@ class HikSyncWorker {
     try {
       await _dispatch(row);
       await outbox.markHikOutboxDone(row.id);
+      await _reflectDeviceState(row);
     } catch (e) {
       await _scheduleRetry(row, e);
     }
+  }
+
+  /// Mirror the applied change into Students.hikRegistered. Only a successful
+  /// upsert means the card is on the device; any delete clears the flag. (A
+  /// deletePerson row may target an already-removed student — the update is a
+  /// harmless no-op then.)
+  Future<void> _reflectDeviceState(HikOutboxData row) async {
+    final onDevice = row.operation == HikOpType.upsertCard;
+    await outbox.setStudentHikRegistered(row.userId, onDevice);
   }
 
   Future<void> _dispatch(HikOutboxData row) async {
@@ -101,6 +111,14 @@ class HikSyncWorker {
       }
     }
     await hik.upsertCard(rfidNumber: newRfid, employeeNo: row.employeeNo);
+
+    // Read-back so "done" (and the filled chip via _reflectDeviceState) means
+    // the device truly holds the card — same guarantee as the direct push path.
+    // A miss throws → _processOne reschedules instead of falsely confirming.
+    final stored = await hik.deviceHasCard(rfidNumber: newRfid);
+    if (!stored) {
+      throw StateError('card $newRfid not confirmed on device after upsert');
+    }
   }
 
   Future<void> _deleteCard(HikOutboxData row) async {

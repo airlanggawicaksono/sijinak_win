@@ -241,11 +241,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       final result = await showDialog<TapPopupResult>(
         context: context,
         barrierDismissible: false,
-        builder: (_) => TapPopupDialog(
-          student: entry.student,
-          attendanceService: ref.read(attendanceServiceProvider),
-          initialEventType: 'izin',
-        ),
+        builder: (_) => TapPopupDialog(student: entry.student),
       );
 
       if (result != null && result.eventType == 'izin') {

@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../config/app_config.dart';
+import 'dto/card_set_response_dto.dart';
 import 'dto/desktop_settings_dto.dart';
-import 'dto/device_jobs/device_job_dto.dart';
 import 'dto/student_sync_response_dto.dart';
 
 /// Port for all sijinak → backend HTTP calls.
@@ -22,20 +22,6 @@ abstract class BackendApiPort {
 
   // Desktop-scoped read settings (late cutoff, etc.). Edits stay admin-only via FE.
   Future<DesktopSettingsDTO> getDesktopSettings();
-
-  // DeviceJob outbox API (worker)
-  Future<List<DeviceJobDTO>> listPendingJobs({
-    required List<String> types,
-    int limit = 50,
-  });
-  Future<ClaimResponseDTO> claimJob({required String jobId, required String deviceId});
-  Future<void> completeJob({required String jobId, required String deviceId});
-  Future<void> failJob({
-    required String jobId,
-    required String deviceId,
-    required String error,
-    int? retryInSeconds,
-  });
 }
 
 class ApiClient implements BackendApiPort {
@@ -100,57 +86,6 @@ class ApiClient implements BackendApiPort {
   Future<DesktopSettingsDTO> getDesktopSettings() async {
     final body = await _get('/api/desktop/settings', timeout: const Duration(seconds: 10));
     return DesktopSettingsDTO.fromJson(jsonDecode(body) as Map<String, dynamic>);
-  }
-
-  // ── DeviceJob worker API ────────────────────────────────────────────
-
-  @override
-  Future<List<DeviceJobDTO>> listPendingJobs({
-    required List<String> types,
-    int limit = 50,
-  }) async {
-    final qs = 'types=${Uri.encodeQueryComponent(types.join(','))}&limit=$limit';
-    final body = await _get('/api/desktop/jobs?$qs', timeout: const Duration(seconds: 15));
-    final list = jsonDecode(body) as List;
-    return list.cast<Map<String, dynamic>>().map(DeviceJobDTO.fromJson).toList();
-  }
-
-  @override
-  Future<ClaimResponseDTO> claimJob({required String jobId, required String deviceId}) async {
-    final body = await _post(
-      '/api/desktop/jobs/$jobId/claim',
-      bodyJson: {'device_id': deviceId},
-      timeout: const Duration(seconds: 15),
-    );
-    return ClaimResponseDTO.fromJson(jsonDecode(body) as Map<String, dynamic>);
-  }
-
-  @override
-  Future<void> completeJob({required String jobId, required String deviceId}) async {
-    await _post(
-      '/api/desktop/jobs/$jobId/complete',
-      bodyJson: {'device_id': deviceId},
-      timeout: const Duration(seconds: 15),
-    );
-  }
-
-  @override
-  Future<void> failJob({
-    required String jobId,
-    required String deviceId,
-    required String error,
-    int? retryInSeconds,
-  }) async {
-    final payload = <String, dynamic>{
-      'device_id': deviceId,
-      'error': error,
-    };
-    if (retryInSeconds != null) payload['retry_in_seconds'] = retryInSeconds;
-    await _post(
-      '/api/desktop/jobs/$jobId/fail',
-      bodyJson: payload,
-      timeout: const Duration(seconds: 15),
-    );
   }
 
   // ── HTTP helpers ────────────────────────────────────────────────────

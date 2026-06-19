@@ -39,15 +39,6 @@ class AttendanceService {
         '-${h.substring(16, 20)}-${h.substring(20)}';
   }
 
-  Future<TapRecord?> getExistingTodayRecord(String userId, String eventType) async {
-    final today = await db.getTodayRecordsForStudent(userId);
-    try {
-      return today.firstWhere((r) => r.eventType == eventType);
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> _handleEvent(HikEvent event) async {
     if (event.rfidNumber.isEmpty) return;
     // While CardScanDialog is open, taps are consumed by the dialog (treated
@@ -55,12 +46,16 @@ class AttendanceService {
     // absen/izin against the existing owner.
     if (hikService.isCapturing) return;
 
-    Student? student;
-    if (event.employeeNo != null && event.employeeNo!.isNotEmpty) {
-      final userId = _toUuid(event.employeeNo!);
-      student = await db.getStudentByUserId(userId);
-    }
-    student ??= await db.getStudentByCard(event.rfidNumber);
+    // Only a DEVICE-resolved person counts as a real absensi/izin tap. A
+    // recognized card carries employeeNoString (the device matched it to a
+    // person). An unregistered/illegal card emits an alertStream event with a
+    // cardNo but NO employeeNo — the device never granted it. Those "alerts"
+    // are used solely by CardScanDialog for assignment; they must never drive
+    // attendance. (Previously a getStudentByCard fallback matched the local DB
+    // even for cards the device rejected, firing phantom absen.)
+    final employeeNo = event.employeeNo;
+    if (employeeNo == null || employeeNo.isEmpty) return;
+    final student = await db.getStudentByUserId(_toUuid(employeeNo));
     if (student == null) return;
 
     // Break In → show izin popup (reason + ticket print required).

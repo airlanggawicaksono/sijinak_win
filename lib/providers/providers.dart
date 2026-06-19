@@ -19,7 +19,6 @@ import '../services/sync_service.dart';
 import '../services/app_pubsub.dart';
 import '../services/ticket_printer_service.dart';
 import '../services/izin_dispatch_service.dart';
-import '../services/device_job/device_job_worker.dart';
 import '../data/hikvision/alert_stream.dart';
 import '../data/hikvision/isapi_client.dart';
 
@@ -323,31 +322,17 @@ final globalSyncProvider =
 
 // ── Sijinak realtime runtime ────────────────────────────────────────────────
 
-/// Lightweight TopicSubscriber that just calls a callback. Used to bridge
-/// the bus's "incoming event" into a DeviceJobWorker tick without coupling
-/// the worker to the bus.
-class _JobCreatedSubscriber implements TopicSubscriber {
-  final Future<void> Function() onCreated;
-  _JobCreatedSubscriber(this.onCreated);
-
-  @override
-  List<String> get topics => const ['desktop.job.created'];
-
-  @override
-  Future<void> onEvent(String topic, dynamic data) => onCreated();
-}
-
 /// Long-lived controller that owns sijinak's realtime plumbing:
-///   - the DeviceJobWorker (outbox executor)
+///   - the CardOutboxWorker (server-bound card sync)
+///   - the HikSyncWorker (device-bound card sync)
 ///   - the DesktopSettingsStore (BE-canonical settings cache)
 ///   - the AbsensiInvalidationSubscriber (drops stale local locks)
-///   - the single DesktopEventBus that fans WS frames out to all three
+///   - the single DesktopEventBus that fans WS frames out to all subscribers
 ///
 /// Recreated whenever the server URL / API key / hik MAC fingerprint changes.
 class SijinakRuntimeController {
   final Ref ref;
 
-  DeviceJobWorker? _worker;
   DesktopSettingsStore? _settingsStore;
   DesktopEventBus? _bus;
   CardOutboxWorker? _cardOutboxWorker;
@@ -361,9 +346,21 @@ class SijinakRuntimeController {
 
   Future<void> ensureStarted(AppConfig config) async {
     if (!config.isServerConfigured) return;
-    final fingerprint =
-        '${config.serverUrl}|${config.apiKey}|${config.hikvisionMac}';
-    if (_activeFingerprint == fingerprint && _worker != null) return;
+    // The HikSyncWorker's IsapiClient (device writes) is built from the Hik
+    // connection params below. They MUST be in the fingerprint or the worker
+    // won't rebuild when the address/creds change — e.g. MAC auto-discovery
+    // resolving the IP after first start. Omitting hikvisionIp was the bug:
+    // card writes kept hitting a stale/empty base URL and silently stalled
+    // while reads (alertStream, rebuilt separately) looked healthy.
+    final fingerprint = [
+      config.serverUrl,
+      config.apiKey,
+      config.hikvisionIp,
+      config.hikvisionUser,
+      config.hikvisionPassword,
+      config.hikvisionMac,
+    ].join('|');
+    if (_activeFingerprint == fingerprint && _bus != null) return;
 
     await _shutdown();
     _activeFingerprint = fingerprint;
@@ -371,7 +368,6 @@ class SijinakRuntimeController {
     final api = ApiClient.fromConfig(config);
     final db = ref.read(databaseProvider);
     final hik = _hikClient(config);
-    final worker = _buildWorker(api, config);
     final settingsStore = DesktopSettingsStore(api: api);
     final invalidator = AbsensiInvalidationSubscriber(db: db);
     final deletedSubscriber = StudentDeletedSubscriber(db: db);
@@ -383,19 +379,16 @@ class SijinakRuntimeController {
     );
     final bus = _buildBus(
       config,
-      worker,
       settingsStore,
       invalidator,
       deletedSubscriber,
     );
 
-    _worker = worker;
     _settingsStore = settingsStore;
     _bus = bus;
     _cardOutboxWorker = cardOutboxWorker;
     _hikSyncWorker = hikSyncWorker;
 
-    await worker.start();
     await settingsStore.refreshFromServer();
     await cardOutboxWorker.start();
     await hikSyncWorker.start();
@@ -418,10 +411,6 @@ class SijinakRuntimeController {
     });
   }
 
-  Future<void> tickNow() async {
-    await _worker?.tick();
-  }
-
   /// Fire an immediate CardOutbox pass — called after enqueueing a fresh
   /// optimistic edit so the user sees the badge advance without waiting
   /// for the next periodic tick.
@@ -442,16 +431,8 @@ class SijinakRuntimeController {
     password: config.hikvisionPassword,
   );
 
-  /// BE-driven job worker. Card sync was migrated to the local HikOutbox
-  /// (sijinak owns Hik now). Kept around for any future BE-side jobs that
-  /// genuinely need server coordination — currently none registered.
-  DeviceJobWorker _buildWorker(BackendApiPort api, AppConfig config) {
-    return DeviceJobWorker(api: api, deviceId: _deviceIdFor(config));
-  }
-
   DesktopEventBus _buildBus(
     AppConfig config,
-    DeviceJobWorker worker,
     DesktopSettingsStore settingsStore,
     AbsensiInvalidationSubscriber invalidator,
     StudentDeletedSubscriber deletedSubscriber,
@@ -460,7 +441,6 @@ class SijinakRuntimeController {
       baseUrl: config.serverUrl,
       apiKey: config.apiKey,
     );
-    bus.register(_JobCreatedSubscriber(worker.tick));
     bus.register(settingsStore);
     bus.register(invalidator);
     bus.register(deletedSubscriber);
@@ -469,25 +449,16 @@ class SijinakRuntimeController {
 
   Future<void> _shutdown() async {
     await _hikStatusSub?.cancel();
-    await _worker?.stop();
     await _cardOutboxWorker?.stop();
     await _hikSyncWorker?.stop();
     await _bus?.close();
     _settingsStore?.dispose();
     _hikStatusSub = null;
-    _worker = null;
     _cardOutboxWorker = null;
     _hikSyncWorker = null;
     _bus = null;
     _settingsStore = null;
     _activeFingerprint = null;
-  }
-
-  String _deviceIdFor(AppConfig config) {
-    final mac = config.hikvisionMac.trim();
-    return mac.isEmpty
-        ? 'sijinak-${config.serverUrl.hashCode}'
-        : 'sijinak-$mac';
   }
 }
 
@@ -496,9 +467,3 @@ final sijinakRuntimeProvider = Provider<SijinakRuntimeController>((ref) {
   ref.onDispose(controller._shutdown);
   return controller;
 });
-
-/// Back-compat alias for callers that previously referenced the worker
-/// controller directly (e.g. UI hooks that nudge the worker after an
-/// optimistic action). They only need `tickNow()`.
-@Deprecated('Use sijinakRuntimeProvider')
-final deviceJobWorkerControllerProvider = sijinakRuntimeProvider;

@@ -29,6 +29,11 @@ abstract class HikvisionDevicePort {
   Future<void> deletePerson({required String employeeNo});
   Future<List<HikvisionUserInfo>> listUsers({int pageSize = 200});
   Future<List<HikvisionCardInfo>> listCards({int pageSize = 200});
+
+  /// Read-back: is [rfidNumber] actually stored on the device right now? Used to
+  /// confirm a write really stuck (Hikvision can return 200 yet not persist).
+  Future<bool> deviceHasCard({required String rfidNumber});
+
   Future<DeviceInfo> testConnection({
     Duration timeout = const Duration(seconds: 3),
   });
@@ -263,11 +268,10 @@ class IsapiClient implements HikvisionDevicePort {
     } on IsapiException catch (e) {
       if (e.message.toLowerCase().contains('already')) {
         // Card belongs to another person — delete first, then re-add
-        await putJson('/ISAPI/AccessControl/CardInfo/Delete?format=json', {
-          'CardInfoDelCond': {
-            'CardNoList': [{'cardNo': rfidNumber}],
-          },
-        });
+        await putJson(
+          '/ISAPI/AccessControl/CardInfo/Delete?format=json',
+          _cardDeleteBody(rfidNumber),
+        );
         await postJson('/ISAPI/AccessControl/CardInfo/Record?format=json', payload);
       } else {
         rethrow;
@@ -278,13 +282,10 @@ class IsapiClient implements HikvisionDevicePort {
   /// Delete a card from the device.
   @override
   Future<void> deleteCard({required String rfidNumber}) async {
-    await putJson('/ISAPI/AccessControl/CardInfo/Delete?format=json', {
-      'CardInfoDelCond': {
-        'cardNoList': [
-          {'cardNo': rfidNumber},
-        ],
-      },
-    });
+    await putJson(
+      '/ISAPI/AccessControl/CardInfo/Delete?format=json',
+      _cardDeleteBody(rfidNumber),
+    );
   }
 
   /// Delete a person from the device.
@@ -388,6 +389,18 @@ class IsapiClient implements HikvisionDevicePort {
     return cards;
   }
 
+  /// Read-back verification. Pages the device's full card list and checks for an
+  /// exact cardNo match. Heavier than a filtered search, but correct on ANY
+  /// firmware — an unsupported search filter would silently miss and falsely
+  /// report "not found", which is exactly the silent-failure class we're killing.
+  @override
+  Future<bool> deviceHasCard({required String rfidNumber}) async {
+    final target = rfidNumber.trim();
+    if (target.isEmpty) return false;
+    final cards = await listCards();
+    return cards.any((c) => c.rfidNumber.trim() == target);
+  }
+
   /// Test connection by fetching device info.
   @override
   Future<DeviceInfo> testConnection({
@@ -410,6 +423,23 @@ class IsapiClient implements HikvisionDevicePort {
 String? _extractXml(String xml, String tag) {
   final match = RegExp('<$tag>(.*?)</$tag>').firstMatch(xml);
   return match?.group(1);
+}
+
+/// Body for `CardInfo/Delete`. Hikvision firmwares disagree on the key case:
+/// the ISAPI spec uses `CardNoList`, but the first-commit code and our field
+/// doc (hikvision-documentation.md §5) use `cardNoList`. With no device to test
+/// against, send BOTH — the firmware reads whichever key it knows and ignores
+/// the other. Avoids betting on a case we can't verify.
+Map<String, dynamic> _cardDeleteBody(String rfidNumber) {
+  final list = [
+    {'cardNo': rfidNumber},
+  ];
+  return {
+    'CardInfoDelCond': {
+      'CardNoList': list,
+      'cardNoList': list,
+    },
+  };
 }
 
 class IsapiException implements Exception {
