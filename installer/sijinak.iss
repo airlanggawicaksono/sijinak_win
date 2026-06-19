@@ -12,7 +12,7 @@
 ;   d. Offers to launch the app at end
 
 #define AppName        "Sijinak"
-#define AppVersion     "1.0.1"
+#define AppVersion     "1.0.2"
 #define AppPublisher   "MAN 2 Simandaya"
 #define AppExeName     "sijinak_win.exe"
 #define ReleaseDir     "..\build\windows\x64\runner\Release"
